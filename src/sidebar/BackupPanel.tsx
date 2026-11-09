@@ -4,19 +4,27 @@ import { db } from "../db/database";
 import {
   createBackup,
   mergeImportedArticle,
+  mergeImportedSource,
   previewImport
 } from "../domain/backup";
-import type { Article, BookmarkNode, ImportPreview } from "../domain/types";
+import type {
+  Article,
+  BookmarkNode,
+  ImportPreview,
+  Source
+} from "../domain/types";
 import { normalizeUrl } from "../domain/url";
 
 interface BackupPanelProps {
   articles: Article[];
+  sources: Source[];
   selectedIds: Set<string>;
   onChanged: () => Promise<void>;
 }
 
 export function BackupPanel({
   articles,
+  sources,
   selectedIds,
   onChanged
 }: BackupPanelProps) {
@@ -33,7 +41,12 @@ export function BackupPanel({
       db.annotations.filter((item) => ids.has(item.articleId)).toArray(),
       db.sessions.filter((item) => ids.has(item.articleId)).toArray()
     ]);
-    const backup = createBackup(chosen, annotations, sessions);
+    const backup = createBackup(
+      chosen,
+      annotations,
+      sessions,
+      selectedOnly ? [] : sources
+    );
     const blob = new Blob([JSON.stringify(backup, null, 2)], {
       type: "application/json"
     });
@@ -52,14 +65,16 @@ export function BackupPanel({
     if (!file) return;
     try {
       const parsed: unknown = JSON.parse(await file.text());
-      setPreview(previewImport(parsed, articles));
+      setPreview(previewImport(parsed, articles, sources));
     } catch {
       setPreview({
         valid: false,
         errors: ["The selected file is not valid JSON."],
         newArticles: 0,
         mergedArticles: 0,
-        orphanedArticles: 0
+        orphanedArticles: 0,
+        newSources: 0,
+        mergedSources: 0
       });
     }
   }
@@ -70,11 +85,12 @@ export function BackupPanel({
     const bookmarkTree = await getBookmarkTree();
     const bookmarks = flatten(bookmarkTree).filter((node) => node.url);
     const local = await db.articles.toArray();
+    const localSources = await db.sources.toArray();
     const articleIdMap = new Map<string, string>();
 
     await db.transaction(
       "rw",
-      [db.articles, db.annotations, db.sessions],
+      [db.articles, db.annotations, db.sessions, db.sources],
       async () => {
         for (const incoming of backup.articles) {
           const localMatch = local.find(
@@ -106,10 +122,16 @@ export function BackupPanel({
           };
           if (!(await db.sessions.get(mapped.id))) await db.sessions.put(mapped);
         }
+        for (const source of backup.sources) {
+          const localMatch = localSources.find(
+            (item) => item.normalizedUrl === source.normalizedUrl
+          );
+          await db.sources.put(mergeImportedSource(source, localMatch));
+        }
       }
     );
     setMessage(
-      `Imported ${preview.newArticles} new and merged ${preview.mergedArticles} existing articles.`
+      `Imported ${preview.newArticles} new articles and ${preview.newSources} new sources.`
     );
     setPreview(undefined);
     if (inputRef.current) inputRef.current.value = "";
@@ -129,7 +151,7 @@ export function BackupPanel({
       <div className="settings-card">
         <h3>Export JSON</h3>
         <p className="muted">
-          Includes reading progress, positions, sessions, highlights, and private notes.
+          Includes reading progress, positions, sessions, highlights, sources, and private notes.
         </p>
         <div className="button-row">
           <button className="button primary" onClick={() => void exportData(false)}>
@@ -165,6 +187,8 @@ export function BackupPanel({
                 <span>{preview.newArticles} new articles</span>
                 <span>{preview.mergedArticles} matched local articles</span>
                 <span>{preview.orphanedArticles} checked against current Favorites</span>
+                <span>{preview.newSources} new sources</span>
+                <span>{preview.mergedSources} matched local sources</span>
                 <button className="button primary" onClick={() => void applyImport()}>
                   Apply import
                 </button>

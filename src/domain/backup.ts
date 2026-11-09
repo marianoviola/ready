@@ -3,7 +3,8 @@ import type {
   Article,
   ImportPreview,
   ReadingSession,
-  ReadyBackup
+  ReadyBackup,
+  Source
 } from "./types";
 import { getDomain, normalizeUrl } from "./url";
 import { isReadingStatus } from "./status";
@@ -11,21 +12,24 @@ import { isReadingStatus } from "./status";
 export function createBackup(
   articles: Article[],
   annotations: Annotation[],
-  sessions: ReadingSession[]
+  sessions: ReadingSession[],
+  sources: Source[] = []
 ): ReadyBackup {
   const articleIds = new Set(articles.map((article) => article.id));
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: new Date().toISOString(),
     articles: articles.map(({ bookmarkId: _bookmarkId, bookmarkState: _state, ...article }) => article),
     annotations: annotations.filter((item) => articleIds.has(item.articleId)),
-    sessions: sessions.filter((item) => articleIds.has(item.articleId))
+    sessions: sessions.filter((item) => articleIds.has(item.articleId)),
+    sources
   };
 }
 
 export function previewImport(
   value: unknown,
-  localArticles: Article[]
+  localArticles: Article[],
+  localSources: Source[] = []
 ): ImportPreview {
   const errors = validateBackup(value);
   if (errors.length > 0) {
@@ -34,14 +38,22 @@ export function previewImport(
       errors,
       newArticles: 0,
       mergedArticles: 0,
-      orphanedArticles: 0
+      orphanedArticles: 0,
+      newSources: 0,
+      mergedSources: 0
     };
   }
 
-  const backup = value as ReadyBackup;
+  const backup = upgradeBackup(value);
   const localUrls = new Set(localArticles.map((article) => article.normalizedUrl));
+  const localSourceUrls = new Set(
+    localSources.map((source) => source.normalizedUrl)
+  );
   const mergedArticles = backup.articles.filter((article) =>
     localUrls.has(article.normalizedUrl)
+  ).length;
+  const mergedSources = backup.sources.filter((source) =>
+    localSourceUrls.has(source.normalizedUrl)
   ).length;
 
   return {
@@ -50,6 +62,8 @@ export function previewImport(
     newArticles: backup.articles.length - mergedArticles,
     mergedArticles,
     orphanedArticles: backup.articles.length,
+    newSources: backup.sources.length - mergedSources,
+    mergedSources,
     backup
   };
 }
@@ -83,10 +97,27 @@ export function mergeImportedArticle(
   };
 }
 
+export function mergeImportedSource(
+  incoming: Source,
+  local?: Source
+): Source {
+  if (!local) return incoming;
+  const newer = incoming.updatedAt > local.updatedAt ? incoming : local;
+  return {
+    ...local,
+    ...newer,
+    id: local.id,
+    createdAt: Math.min(local.createdAt, incoming.createdAt),
+    updatedAt: Math.max(local.updatedAt, incoming.updatedAt)
+  };
+}
+
 function validateBackup(value: unknown): string[] {
   if (!isRecord(value)) return ["Backup must be a JSON object."];
   const errors: string[] = [];
-  if (value.schemaVersion !== 1) errors.push("Unsupported backup schema version.");
+  if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
+    errors.push("Unsupported backup schema version.");
+  }
   if (!Array.isArray(value.articles)) {
     errors.push("Backup articles must be an array.");
   }
@@ -95,6 +126,9 @@ function validateBackup(value: unknown): string[] {
   }
   if (!Array.isArray(value.sessions)) {
     errors.push("Backup sessions must be an array.");
+  }
+  if (value.schemaVersion === 2 && !Array.isArray(value.sources)) {
+    errors.push("Backup sources must be an array.");
   }
   if (errors.length > 0) return errors;
 
@@ -153,7 +187,54 @@ function validateBackup(value: unknown): string[] {
       errors.push(`Reading session ${index + 1} is invalid.`);
     }
   }
+
+  const sources = value.schemaVersion === 2
+    ? value.sources as unknown[]
+    : [];
+  for (const [index, source] of sources.entries()) {
+    if (
+      !isRecord(source) ||
+      typeof source.id !== "string" ||
+      typeof source.name !== "string" ||
+      typeof source.url !== "string" ||
+      typeof source.normalizedUrl !== "string" ||
+      typeof source.domain !== "string" ||
+      typeof source.subscribed !== "boolean" ||
+      !isFiniteNumber(source.createdAt) ||
+      !isFiniteNumber(source.updatedAt)
+    ) {
+      errors.push(`Source ${index + 1} is invalid.`);
+      continue;
+    }
+    try {
+      const normalized = normalizeUrl(source.url);
+      if (normalized !== source.normalizedUrl) {
+        errors.push(`Source ${index + 1} has inconsistent URL data.`);
+      }
+    } catch {
+      errors.push(`Source ${index + 1} has an invalid URL.`);
+    }
+  }
   return errors;
+}
+
+function upgradeBackup(value: unknown): ReadyBackup {
+  const backup = value as {
+    schemaVersion: 1 | 2;
+    exportedAt: string;
+    articles: ReadyBackup["articles"];
+    annotations: Annotation[];
+    sessions: ReadingSession[];
+    sources?: Source[];
+  };
+  return {
+    schemaVersion: 2,
+    exportedAt: backup.exportedAt,
+    articles: backup.articles,
+    annotations: backup.annotations,
+    sessions: backup.sessions,
+    sources: backup.sources ?? []
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

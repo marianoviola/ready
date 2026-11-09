@@ -1,23 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { sendReadyMessage } from "../browser/messages";
 import { db } from "../db/database";
+import {
+  compareArticles,
+  type ArticleSort
+} from "../domain/article-sort";
 import { rankRecommendations } from "../domain/discovery";
 import type {
   Annotation,
   Article,
   ReadingStatus,
-  Recommendation
+  Recommendation,
+  Source
 } from "../domain/types";
 import { BackupPanel } from "./BackupPanel";
 import { BookmarkPicker } from "./BookmarkPicker";
+import { SourcesPanel } from "./SourcesPanel";
 
-type View = "library" | "discover" | "backup";
+type View = "library" | "sources" | "discover" | "backup";
 type Grouping = "date" | "domain" | "status";
-type Sort = "added" | "activity";
 
 export function App() {
   const [view, setView] = useState<View>("library");
   const [articles, setArticles] = useState<Article[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [search, setSearch] = useState("");
@@ -25,9 +31,10 @@ export function App() {
   const [orphanedOnly, setOrphanedOnly] = useState(false);
   const [domainFilter, setDomainFilter] = useState("all");
   const [grouping, setGrouping] = useState<Grouping>("status");
-  const [sort, setSort] = useState<Sort>("activity");
+  const [sort, setSort] = useState<ArticleSort>("activity");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [picker, setPicker] = useState<"import" | "restore">();
+  const [picker, setPicker] = useState<"link" | "restore">();
   const [restoreArticleId, setRestoreArticleId] = useState<string>();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -35,13 +42,15 @@ export function App() {
 
   const loadData = useCallback(async () => {
     try {
-      const [nextArticles, nextAnnotations, ignored] = await Promise.all([
+      const [nextArticles, nextAnnotations, nextSources, ignored] = await Promise.all([
         db.articles.toArray(),
         db.annotations.toArray(),
+        db.sources.toArray(),
         db.ignoredRecommendations.toArray()
       ]);
       setArticles(nextArticles);
       setAnnotations(nextAnnotations);
+      setSources(nextSources);
       setRecommendations(
         rankRecommendations(nextArticles, nextAnnotations, ignored)
       );
@@ -56,6 +65,10 @@ export function App() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    setCollapsedGroups(new Set());
+  }, [grouping]);
 
   const domains = useMemo(
     () => [...new Set(articles.map((article) => article.domain))].sort(),
@@ -87,12 +100,7 @@ export function App() {
           article.domain.toLowerCase().includes(query) ||
           notesByArticle.get(article.id)?.includes(query)
       )
-      .sort((left, right) =>
-        sort === "added"
-          ? right.originalSavedAt - left.originalSavedAt
-          : (right.lastReadAt ?? 0) - (left.lastReadAt ?? 0) ||
-            right.originalSavedAt - left.originalSavedAt
-      );
+      .sort((left, right) => compareArticles(left, right, sort));
   }, [
     articles,
     domainFilter,
@@ -231,11 +239,30 @@ export function App() {
     setError("");
   }
 
+  function toggleGroup(group: string) {
+    const key = `${grouping}:${group}`;
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  async function completeLink(linked: number) {
+    setMessage(
+      linked === 0
+        ? "All selected Favorites were already linked."
+        : `Linked ${linked} ${linked === 1 ? "Favorite" : "Favorites"} to Ready.`
+    );
+    await loadData();
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">R</span>
+          <img className="brand-mark" src="/icons/ready.svg" alt="" />
           <div>
             <h1>Ready</h1>
             <span>Your reading, kept local</span>
@@ -247,15 +274,22 @@ export function App() {
       </header>
 
       <nav className="tabs" aria-label="Ready sections">
-        {(["library", "discover", "backup"] as View[]).map((item) => (
+        {(["library", "sources", "discover", "backup"] as View[]).map((item) => (
           <button
             key={item}
             className={view === item ? "tab active" : "tab"}
             aria-current={view === item ? "page" : undefined}
             onClick={() => setView(item)}
           >
-            {item === "library" ? "Library" : item === "discover" ? "Discover" : "Backup"}
+            {item === "library"
+              ? "Library"
+              : item === "sources"
+                ? "Sources"
+                : item === "discover"
+                  ? "Discover"
+                  : "Backup"}
             {item === "library" && <span className="count">{articles.length}</span>}
+            {item === "sources" && <span className="count">{sources.length}</span>}
           </button>
         ))}
       </nav>
@@ -276,8 +310,8 @@ export function App() {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </label>
-            <button className="button secondary compact" onClick={() => setPicker("import")}>
-              Import
+            <button className="button secondary compact" onClick={() => setPicker("link")}>
+              Link
             </button>
           </div>
 
@@ -307,9 +341,9 @@ export function App() {
               </select>
             </label>
             <label>Sort
-              <select value={sort} onChange={(event) => setSort(event.target.value as Sort)}>
-                <option value="activity">Last activity</option>
-                <option value="added">Date added</option>
+              <select value={sort} onChange={(event) => setSort(event.target.value as ArticleSort)}>
+                <option value="activity">Last activity (newest)</option>
+                <option value="added">Date added (newest)</option>
               </select>
             </label>
           </div>
@@ -319,13 +353,26 @@ export function App() {
           ) : grouped.length === 0 ? (
             <EmptyState
               title={articles.length === 0 ? "Your library is ready" : "No articles match"}
-              detail={articles.length === 0 ? "Save this page or import existing Edge Favorites to begin." : "Try changing the filters or search."}
+              detail={articles.length === 0 ? "Save this page or link existing Edge Favorites to begin." : "Try changing the filters or search."}
             />
           ) : (
-            grouped.map(([group, items]) => (
+            grouped.map(([group, items]) => {
+              const collapsed = collapsedGroups.has(`${grouping}:${group}`);
+              return (
               <section className="article-group" key={group}>
-                <div className="group-heading"><h2>{group}</h2><span>{items.length}</span></div>
-                <div className="article-list">
+                <button
+                  className="group-heading"
+                  type="button"
+                  aria-expanded={!collapsed}
+                  onClick={() => toggleGroup(group)}
+                >
+                  <span className="group-chevron" aria-hidden="true">
+                    {collapsed ? "›" : "⌄"}
+                  </span>
+                  <h2>{group}</h2>
+                  <span>{items.length}</span>
+                </button>
+                {!collapsed && <div className="article-list">
                   {items.map((article) => (
                     <ArticleCard
                       key={article.id}
@@ -348,9 +395,10 @@ export function App() {
                       onDeleteAnnotation={deleteAnnotation}
                     />
                   ))}
-                </div>
+                </div>}
               </section>
-            ))
+              );
+            })
           )}
         </main>
       )}
@@ -388,18 +436,39 @@ export function App() {
         </main>
       )}
 
+      {view === "sources" && (
+        <SourcesPanel
+          sources={sources}
+          articles={articles}
+          onChanged={loadData}
+          onViewArticles={(domain) => {
+            setSearch("");
+            setStatusFilter("all");
+            setOrphanedOnly(false);
+            setDomainFilter(domain);
+            setView("library");
+          }}
+        />
+      )}
+
       {view === "backup" && (
-        <BackupPanel articles={articles} selectedIds={selectedIds} onChanged={loadData} />
+        <BackupPanel
+          articles={articles}
+          sources={sources}
+          selectedIds={selectedIds}
+          onChanged={loadData}
+        />
       )}
 
       {picker && (
         <BookmarkPicker
-          mode={picker === "import" ? "import" : "folder"}
+          mode={picker === "link" ? "link" : "folder"}
           onClose={() => {
             setPicker(undefined);
             setRestoreArticleId(undefined);
           }}
-          onComplete={picker === "import" ? loadData : restore}
+          onLinked={completeLink}
+          onFolderSelected={restore}
         />
       )}
     </div>

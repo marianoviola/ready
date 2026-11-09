@@ -4,7 +4,7 @@ Ready is a local-first Microsoft Edge extension that turns existing Favorites in
 
 ## What works
 
-- Import individual Favorites or entire Favorite folders without creating copies.
+- Link individual Favorites or entire Favorite folders without creating copies.
 - Save the active page, linking an existing matching Favorite when available.
 - Keep reading records, progress, highlights, notes, and history after a Favorite is deleted.
 - Restore orphaned records to an existing or newly created Favorite.
@@ -12,7 +12,8 @@ Ready is a local-first Microsoft Edge extension that turns existing Favorites in
 - Save a text-anchored reading position and offer an explicit **Resume reading** action.
 - Create persistent CSS Custom Highlight API highlights and optional private notes.
 - Search local article metadata and notes.
-- Filter by reading status, website, and orphan state; group by status, website, or date.
+- Filter by reading status, website, and orphan state; sort by recent activity or saved date; group by status, website, or date with collapsible sections.
+- Keep a separate directory of websites to browse manually, with private notes and subscription status.
 - Show deterministic, on-device forgotten, unfinished, and related recommendations.
 - Export selected or all reading data to a versioned, browser-independent JSON file.
 - Preview, reconcile, and non-destructively merge JSON imports.
@@ -70,6 +71,17 @@ Ready requests access only to a website when you save or open an article from th
 
 The original page is not downloaded or permanently modified. Highlights use the CSS Custom Highlight API rather than wrapper elements.
 
+## Sources
+
+Sources are websites or publications you want to keep independently from saved
+articles. Add a URL and optional name, note, and subscription status from the
+**Sources** tab. Ready does not scrape, fetch, or monitor the website; **Open**
+simply navigates to it in a new tab.
+
+When saved articles share the Source domain, **View saved** opens the Library
+filtered to that website. Removing a Source never removes its articles or Edge
+Favorites.
+
 ## Architecture
 
 ```text
@@ -79,13 +91,13 @@ src/
   content/      Document adapter, anchors, tracker, renderer, isolated UI
   db/           Dexie IndexedDB schema
   domain/       Pure URL, status, anchor, discovery, and backup logic
-  sidebar/      React sidebar, Favorite picker, discovery, and backup UI
+  sidebar/      React sidebar, Sources, Favorite picker, discovery, and backup UI
 ```
 
 ### Data ownership
 
 - **Edge Favorites:** URL, title, folder, and native creation date.
-- **IndexedDB:** stable Ready article ID, bookmark relationship, recovery metadata, status, progress, position, sessions, annotations, and timestamps.
+- **IndexedDB:** stable Ready article ID, bookmark relationship, recovery metadata, status, progress, position, sessions, annotations, Sources, and timestamps.
 
 Bookmark IDs are never exported. Imported articles are reconciled by normalized URL and retain a stable local identity. When a Favorite disappears, Ready removes only the bookmark reference and marks the record as orphaned.
 
@@ -143,11 +155,12 @@ Playwright includes a built-extension smoke test that launches Chromium with the
 
 ## JSON format
 
-Backups use `schemaVersion: 1` and contain:
+Backups use `schemaVersion: 2` and contain:
 
 - `articles` without Edge bookmark IDs.
 - `annotations`, including unresolved annotations.
 - `sessions`.
+- `sources`, including notes and subscription status.
 - ISO export timestamp.
 
-Imports are validated before writes. Existing articles are matched by normalized URL, newer metadata wins, the earliest saved date is preserved, and annotations/sessions are remapped to the stable local article ID.
+Imports are validated before writes. Existing articles and Sources are matched by normalized URL, newer metadata wins, the earliest saved date is preserved, and annotations/sessions are remapped to the stable local article ID. Version 1 backups remain importable and are upgraded with an empty Sources list.

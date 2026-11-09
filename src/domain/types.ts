@@ -34,6 +34,18 @@ export interface Article {
   lastReadAt?: number;
 }
 
+export interface Source {
+  id: string;
+  name: string;
+  url: string;
+  normalizedUrl: string;
+  domain: string;
+  subscribed: boolean;
+  note?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Annotation {
   id: string;
   articleId: string;
@@ -79,15 +91,17 @@ export interface BookmarkNode {
   title: string;
   url?: string;
   dateAdded?: number;
+  linked?: boolean;
   children?: BookmarkNode[];
 }
 
 export interface ReadyBackup {
-  schemaVersion: 1;
+  schemaVersion: 2;
   exportedAt: string;
   articles: Array<Omit<Article, "bookmarkId" | "bookmarkState">>;
   annotations: Annotation[];
   sessions: ReadingSession[];
+  sources: Source[];
 }
 
 export interface ImportPreview {
@@ -96,5 +110,7 @@ export interface ImportPreview {
   newArticles: number;
   mergedArticles: number;
   orphanedArticles: number;
+  newSources: number;
+  mergedSources: number;
   backup?: ReadyBackup;
 }
