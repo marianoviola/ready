@@ -3,11 +3,18 @@ import type { Article, BookmarkNode } from "../domain/types";
 import { getDomain, normalizeUrl, urlsMatch } from "../domain/url";
 
 export async function getBookmarkTree(): Promise<BookmarkNode[]> {
-  const tree = await chrome.bookmarks.getTree();
-  return tree.map(toBookmarkNode);
+  const [tree, articles] = await Promise.all([
+    chrome.bookmarks.getTree(),
+    db.articles.where("bookmarkState").equals("linked").toArray()
+  ]);
+  const linkedBookmarkIds = new Set(
+    articles.flatMap((article) => article.bookmarkId ? [article.bookmarkId] : [])
+  );
+  const linkedUrls = new Set(articles.map((article) => article.normalizedUrl));
+  return tree.map((node) => toBookmarkNode(node, linkedBookmarkIds, linkedUrls));
 }
 
-export async function importBookmarks(bookmarkIds: string[]): Promise<number> {
+export async function linkBookmarks(bookmarkIds: string[]): Promise<number> {
   const collected = new Map<string, chrome.bookmarks.BookmarkTreeNode>();
   for (const id of bookmarkIds) {
     const nodes = await chrome.bookmarks.getSubTree(id);
@@ -16,7 +23,7 @@ export async function importBookmarks(bookmarkIds: string[]): Promise<number> {
     }
   }
 
-  let imported = 0;
+  let linked = 0;
   for (const bookmark of collected.values()) {
     const existing = await findArticleForBookmark(bookmark);
     if (existing) {
@@ -26,14 +33,15 @@ export async function importBookmarks(bookmarkIds: string[]): Promise<number> {
           bookmarkState: "linked",
           updatedAt: Date.now()
         });
+        linked += 1;
       }
       continue;
     }
 
     await db.articles.add(articleFromBookmark(bookmark));
-    imported += 1;
+    linked += 1;
   }
-  return imported;
+  return linked;
 }
 
 export async function saveActivePage(folderId?: string): Promise<{
@@ -204,13 +212,28 @@ function flatten(
   ]);
 }
 
-function toBookmarkNode(node: chrome.bookmarks.BookmarkTreeNode): BookmarkNode {
+function toBookmarkNode(
+  node: chrome.bookmarks.BookmarkTreeNode,
+  linkedBookmarkIds: Set<string>,
+  linkedUrls: Set<string>
+): BookmarkNode {
+  let linked = linkedBookmarkIds.has(node.id);
+  if (!linked && node.url) {
+    try {
+      linked = linkedUrls.has(normalizeUrl(node.url));
+    } catch {
+      linked = false;
+    }
+  }
   return {
     id: node.id,
     parentId: node.parentId,
     title: node.title,
     url: node.url,
     dateAdded: node.dateAdded,
-    children: node.children?.map(toBookmarkNode)
+    linked: node.url ? linked : undefined,
+    children: node.children?.map((child) =>
+      toBookmarkNode(child, linkedBookmarkIds, linkedUrls)
+    )
   };
 }

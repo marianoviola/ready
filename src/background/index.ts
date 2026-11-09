@@ -1,6 +1,6 @@
 import {
   getBookmarkTree,
-  importBookmarks,
+  linkBookmarks,
   markBookmarkOrphaned,
   removeArticle,
   restoreBookmark,
@@ -72,10 +72,10 @@ async function handleMessage(request: ReadyRequest): Promise<ReadyResponse> {
   switch (request.type) {
     case "GET_BOOKMARK_TREE":
       return { ok: true, bookmarkTree: await getBookmarkTree() };
-    case "IMPORT_BOOKMARKS":
+    case "LINK_BOOKMARKS":
       return {
         ok: true,
-        imported: await importBookmarks(request.bookmarkIds)
+        linked: await linkBookmarks(request.bookmarkIds)
       };
     case "SAVE_ACTIVE_PAGE": {
       const result = await saveActivePage(request.folderId);

@@ -10,7 +10,7 @@ import type {
 
 export type ReadyRequest =
   | { type: "GET_BOOKMARK_TREE" }
-  | { type: "IMPORT_BOOKMARKS"; bookmarkIds: string[] }
+  | { type: "LINK_BOOKMARKS"; bookmarkIds: string[] }
   | { type: "SAVE_ACTIVE_PAGE"; folderId?: string }
   | { type: "RESTORE_BOOKMARK"; articleId: string; folderId?: string }
   | {
@@ -45,7 +45,7 @@ export type ReadyRequest =
 
 export type ReadyResponse =
   | { ok: true; bookmarkTree: BookmarkNode[] }
-  | { ok: true; imported: number }
+  | { ok: true; linked: number }
   | { ok: true; article: Article; createdBookmark: boolean }
   | { ok: true; removedBookmark: boolean }
   | {
