@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Ready",
+  "short_name": "Ready",
+  "version": "0.1.0",
+  "description": "Turn Edge Favorites into a private, local-first reading library.",
+  "action": {
+    "default_title": "Open Ready"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidebar.html"
+  },
+  "permissions": [
+    "activeTab",
+    "bookmarks",
+    "contextMenus",
+    "sidePanel",
+    "storage",
+    "scripting",
+    "tabs"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "commands": {
+    "save-current-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "Save the current page to Ready"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
