@@ -184,13 +184,17 @@ export function SourcesPanel({
 
 interface SourceEditorProps {
   source: Source | null;
+  initial?: {
+    name: string;
+    url: string;
+  };
   onClose: () => void;
   onSave: (source: Source) => Promise<void>;
 }
 
-function SourceEditor({ source, onClose, onSave }: SourceEditorProps) {
-  const [name, setName] = useState(source?.name ?? "");
-  const [url, setUrl] = useState(source?.url ?? "");
+export function SourceEditor({ source, initial, onClose, onSave }: SourceEditorProps) {
+  const [name, setName] = useState(source?.name ?? initial?.name ?? "");
+  const [url, setUrl] = useState(source?.url ?? initial?.url ?? "");
   const [note, setNote] = useState(source?.note ?? "");
   const [subscribed, setSubscribed] = useState(source?.subscribed ?? false);
   const [saving, setSaving] = useState(false);

@@ -1,4 +1,6 @@
 import { db } from "../db/database";
+import { bookmarkTagsById } from "../domain/bookmark-tree";
+import { mergeTags } from "../domain/tags";
 import type { Article, BookmarkNode } from "../domain/types";
 import { getDomain, normalizeUrl, urlsMatch } from "../domain/url";
 
@@ -15,6 +17,7 @@ export async function getBookmarkTree(): Promise<BookmarkNode[]> {
 }
 
 export async function linkBookmarks(bookmarkIds: string[]): Promise<number> {
+  const tagsByBookmarkId = bookmarkTagsById(await chrome.bookmarks.getTree());
   const collected = new Map<string, chrome.bookmarks.BookmarkTreeNode>();
   for (const id of bookmarkIds) {
     const nodes = await chrome.bookmarks.getSubTree(id);
@@ -25,12 +28,14 @@ export async function linkBookmarks(bookmarkIds: string[]): Promise<number> {
 
   let linked = 0;
   for (const bookmark of collected.values()) {
+    const inheritedTags = tagsByBookmarkId.get(bookmark.id) ?? [];
     const existing = await findArticleForBookmark(bookmark);
     if (existing) {
       if (!existing.bookmarkId) {
         await db.articles.update(existing.id, {
           bookmarkId: bookmark.id,
           bookmarkState: "linked",
+          tags: mergeTags(existing.tags, inheritedTags),
           updatedAt: Date.now()
         });
         linked += 1;
@@ -38,7 +43,7 @@ export async function linkBookmarks(bookmarkIds: string[]): Promise<number> {
       continue;
     }
 
-    await db.articles.add(articleFromBookmark(bookmark));
+    await db.articles.add(articleFromBookmark(bookmark, undefined, inheritedTags));
     linked += 1;
   }
   return linked;
@@ -176,7 +181,8 @@ export async function findArticleByUrl(url: string): Promise<Article | undefined
 
 function articleFromBookmark(
   bookmark: chrome.bookmarks.BookmarkTreeNode,
-  fallbackTitle?: string
+  fallbackTitle?: string,
+  tags: string[] = []
 ): Article {
   if (!bookmark.url) throw new Error("Folders cannot become Ready articles.");
   const now = Date.now();
@@ -188,6 +194,7 @@ function articleFromBookmark(
     normalizedUrl: normalizeUrl(bookmark.url),
     title: bookmark.title || fallbackTitle || bookmark.url,
     domain: getDomain(bookmark.url),
+    tags,
     originalSavedAt: bookmark.dateAdded ?? now,
     status: "unread",
     progress: 0,

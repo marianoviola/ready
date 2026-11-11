@@ -25,6 +25,7 @@ export interface Article {
   canonicalUrl?: string;
   title: string;
   domain: string;
+  tags?: string[];
   originalSavedAt: number;
   status: ReadingStatus;
   progress: number;

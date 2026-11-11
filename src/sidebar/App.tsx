@@ -6,6 +6,7 @@ import {
   type ArticleSort
 } from "../domain/article-sort";
 import { rankRecommendations } from "../domain/discovery";
+import { normalizeTags } from "../domain/tags";
 import type {
   Annotation,
   Article,
@@ -15,10 +16,10 @@ import type {
 } from "../domain/types";
 import { BackupPanel } from "./BackupPanel";
 import { BookmarkPicker } from "./BookmarkPicker";
-import { SourcesPanel } from "./SourcesPanel";
+import { SourceEditor, SourcesPanel } from "./SourcesPanel";
 
 type View = "library" | "sources" | "discover" | "backup";
-type Grouping = "date" | "domain" | "status";
+type Grouping = "date" | "domain" | "status" | "tag";
 
 export function App() {
   const [view, setView] = useState<View>("library");
@@ -30,12 +31,14 @@ export function App() {
   const [statusFilter, setStatusFilter] = useState<ReadingStatus | "all">("all");
   const [orphanedOnly, setOrphanedOnly] = useState(false);
   const [domainFilter, setDomainFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
   const [grouping, setGrouping] = useState<Grouping>("status");
   const [sort, setSort] = useState<ArticleSort>("activity");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [picker, setPicker] = useState<"link" | "restore">();
   const [restoreArticleId, setRestoreArticleId] = useState<string>();
+  const [sourceArticle, setSourceArticle] = useState<Article>();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -74,6 +77,23 @@ export function App() {
     () => [...new Set(articles.map((article) => article.domain))].sort(),
     [articles]
   );
+  const tags = useMemo(
+    () =>
+      [...new Set(articles.flatMap((article) => article.tags ?? []))].sort((left, right) =>
+        left.localeCompare(right)
+      ),
+    [articles]
+  );
+
+  useEffect(() => {
+    setTagFilter((current) =>
+      current === "all" || tags.includes(current) ? current : "all"
+    );
+    if (tags.length === 0) {
+      setGrouping((current) => current === "tag" ? "status" : current);
+    }
+  }, [tags]);
+
   const notesByArticle = useMemo(() => {
     const map = new Map<string, string>();
     for (const annotation of annotations) {
@@ -94,10 +114,14 @@ export function App() {
       .filter((article) => !orphanedOnly || article.bookmarkState === "orphaned")
       .filter((article) => domainFilter === "all" || article.domain === domainFilter)
       .filter(
+        (article) => tagFilter === "all" || (article.tags ?? []).includes(tagFilter)
+      )
+      .filter(
         (article) =>
           !query ||
           article.title.toLowerCase().includes(query) ||
           article.domain.toLowerCase().includes(query) ||
+          (article.tags ?? []).some((tag) => tag.toLowerCase().includes(query)) ||
           notesByArticle.get(article.id)?.includes(query)
       )
       .sort((left, right) => compareArticles(left, right, sort));
@@ -108,19 +132,25 @@ export function App() {
     orphanedOnly,
     search,
     sort,
-    statusFilter
+    statusFilter,
+    tagFilter
   ]);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, Article[]>();
     for (const article of filtered) {
-      const key =
+      const groupKeys =
         grouping === "status"
-          ? statusLabel(article.status)
+          ? [statusLabel(article.status)]
           : grouping === "domain"
-            ? article.domain
-            : dateGroup(article.originalSavedAt);
-      groups.set(key, [...(groups.get(key) ?? []), article]);
+            ? [article.domain]
+            : grouping === "tag"
+              ? (article.tags && article.tags.length > 0 ? article.tags : ["Unlabeled"])
+              : [dateGroup(article.originalSavedAt)];
+
+      for (const key of groupKeys) {
+        groups.set(key, [...(groups.get(key) ?? []), article]);
+      }
     }
     return [...groups.entries()];
   }, [filtered, grouping]);
@@ -188,6 +218,41 @@ export function App() {
       setMessage("Article removed from Ready.");
       await loadData();
     }
+  }
+
+  async function editTags(article: Article) {
+    const value = window.prompt(
+      "Tags (comma-separated):",
+      article.tags?.join(", ") ?? ""
+    );
+    if (value === null) return;
+
+    clearFeedback();
+    try {
+      await db.articles.update(article.id, {
+        tags: normalizeTags(value.split(",")),
+        updatedAt: Date.now()
+      });
+      setMessage("Tags updated.");
+      await loadData();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Tags could not be updated.");
+    }
+  }
+
+  async function saveSourceFromArticle(source: Source) {
+    clearFeedback();
+    const duplicate = await db.sources
+      .where("normalizedUrl")
+      .equals(source.normalizedUrl)
+      .first();
+    if (duplicate) {
+      throw new Error("This source is already saved.");
+    }
+    await db.sources.add(source);
+    setSourceArticle(undefined);
+    setMessage("Source added.");
+    await loadData();
   }
 
   async function restore(folderId?: string) {
@@ -315,37 +380,83 @@ export function App() {
             </button>
           </div>
 
-          <div className="filters" aria-label="Library filters">
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ReadingStatus | "all")} aria-label="Reading status">
-              <option value="all">All statuses</option>
-              <option value="unread">Unread</option>
-              <option value="in_progress">In progress</option>
-              <option value="read">Read</option>
-            </select>
-            <select value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)} aria-label="Website">
-              <option value="all">All websites</option>
-              {domains.map((domain) => <option key={domain}>{domain}</option>)}
-            </select>
+          <div
+            className={`filters${tags.length > 0 ? " has-tags" : ""}`}
+            role="group"
+            aria-label="Filter articles"
+          >
+            <label className="select-field">
+              <span className="sr-only">Filter by reading status</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as ReadingStatus | "all")}
+                aria-label="Reading status"
+              >
+                <option value="all">All statuses</option>
+                <option value="unread">Unread</option>
+                <option value="in_progress">In progress</option>
+                <option value="read">Read</option>
+              </select>
+            </label>
+            <label className="select-field">
+              <span className="sr-only">Filter by website</span>
+              <select
+                value={domainFilter}
+                onChange={(event) => setDomainFilter(event.target.value)}
+                aria-label="Website"
+              >
+                <option value="all">All websites</option>
+                {domains.map((domain) => <option key={domain}>{domain}</option>)}
+              </select>
+            </label>
+            {tags.length > 0 && (
+              <label className="select-field">
+                <span className="sr-only">Filter by tag</span>
+                <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} aria-label="Tag">
+                  <option value="all">All tags</option>
+                  {tags.map((tag) => (
+                    <option key={tag} value={tag}>
+                      {tag}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="check-filter">
               <input type="checkbox" checked={orphanedOnly} onChange={(event) => setOrphanedOnly(event.target.checked)} />
-              Orphaned
+              <span>Orphaned</span>
             </label>
           </div>
 
-          <div className="organize-row">
-            <label>Group
-              <select value={grouping} onChange={(event) => setGrouping(event.target.value as Grouping)}>
-                <option value="status">Status</option>
-                <option value="date">Date added</option>
-                <option value="domain">Website</option>
-              </select>
-            </label>
-            <label>Sort
-              <select value={sort} onChange={(event) => setSort(event.target.value as ArticleSort)}>
-                <option value="activity">Last activity (newest)</option>
-                <option value="added">Date added (newest)</option>
-              </select>
-            </label>
+          <div className="organize-row" aria-label="Organize articles">
+            <div className="organize-control">
+              <span>Group</span>
+              <label className="select-field compact-select-field">
+                <select
+                  value={grouping}
+                  onChange={(event) => setGrouping(event.target.value as Grouping)}
+                  aria-label="Group by"
+                >
+                  <option value="status">Status</option>
+                  <option value="date">Date added</option>
+                  <option value="domain">Website</option>
+                  {tags.length > 0 && <option value="tag">Tag</option>}
+                </select>
+              </label>
+            </div>
+            <div className="organize-control">
+              <span>Sort</span>
+              <label className="select-field compact-select-field">
+                <select
+                  value={sort}
+                  onChange={(event) => setSort(event.target.value as ArticleSort)}
+                  aria-label="Sort by"
+                >
+                  <option value="activity">Last activity</option>
+                  <option value="added">Date added</option>
+                </select>
+              </label>
+            </div>
           </div>
 
           {loading ? (
@@ -391,6 +502,15 @@ export function App() {
                         setPicker("restore");
                       }}
                       onRemove={removeArticle}
+                      onEditTags={editTags}
+                      sourceSaved={sources.some((source) => source.domain === article.domain)}
+                      onSource={() => {
+                        if (sources.some((source) => source.domain === article.domain)) {
+                          setView("sources");
+                        } else {
+                          setSourceArticle(article);
+                        }
+                      }}
                       onEditAnnotation={editAnnotation}
                       onDeleteAnnotation={deleteAnnotation}
                     />
@@ -471,6 +591,18 @@ export function App() {
           onFolderSelected={restore}
         />
       )}
+
+      {sourceArticle && (
+        <SourceEditor
+          source={null}
+          initial={{
+            name: sourceArticle.domain,
+            url: new URL(sourceArticle.originalUrl).origin
+          }}
+          onClose={() => setSourceArticle(undefined)}
+          onSave={saveSourceFromArticle}
+        />
+      )}
     </div>
   );
 }
@@ -484,6 +616,9 @@ interface ArticleCardProps {
   onStatus: (id: string, status: ReadingStatus) => Promise<void>;
   onRestore: () => void;
   onRemove: (article: Article) => Promise<void>;
+  onEditTags: (article: Article) => Promise<void>;
+  sourceSaved: boolean;
+  onSource: () => void;
   onEditAnnotation: (annotation: Annotation) => Promise<void>;
   onDeleteAnnotation: (annotation: Annotation) => Promise<void>;
 }
@@ -504,6 +639,11 @@ function ArticleCard(props: ArticleCardProps) {
           {article.bookmarkState === "orphaned" && <span className="orphan-badge">Favorite removed</span>}
         </div>
         <button className="article-title" onClick={() => void props.onOpen(article, false)}>{article.title}</button>
+        {(article.tags?.length ?? 0) > 0 && (
+          <div className="article-tags" aria-label="Tags">
+            {article.tags?.map((tag) => <span key={tag}>{tag}</span>)}
+          </div>
+        )}
         {article.progress > 0 && (
           <div className="progress-row">
             <div className="progress-track" role="progressbar" aria-valuenow={Math.round(article.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
@@ -519,6 +659,12 @@ function ArticleCard(props: ArticleCardProps) {
             <option value="in_progress">In progress</option>
             <option value="read">Read</option>
           </select>
+          <button className="text-button" onClick={() => void props.onEditTags(article)}>
+            {article.tags?.length ? "Edit tags" : "Add tags"}
+          </button>
+          <button className="text-button" onClick={props.onSource}>
+            {props.sourceSaved ? "View source" : "Add source"}
+          </button>
           {article.bookmarkState === "orphaned" && <button className="text-button" onClick={props.onRestore}>Restore Favorite</button>}
           <button className="text-button danger-text" onClick={() => void props.onRemove(article)}>Remove</button>
         </div>
@@ -544,7 +690,18 @@ function ArticleCard(props: ArticleCardProps) {
 }
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {
-  return <div className="empty-state"><span className="empty-icon" aria-hidden="true">R</span><h2>{title}</h2><p>{detail}</p></div>;
+  return (
+    <div className="empty-state">
+      <span className="library-empty-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="10.8" cy="10.8" r="6.3" />
+          <path d="m15.4 15.4 4.1 4.1" />
+        </svg>
+      </span>
+      <h2>{title}</h2>
+      <p>{detail}</p>
+    </div>
+  );
 }
 
 async function requestSiteAccess(url: string): Promise<void> {

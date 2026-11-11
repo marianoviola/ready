@@ -1,4 +1,5 @@
 import type { BookmarkNode } from "./types";
+import { normalizeTags } from "./tags";
 
 export type BookmarkLinkFilter = "unlinked" | "linked" | "all";
 
@@ -30,4 +31,27 @@ export function selectableBookmarkIds(
   return node.children?.flatMap((child) =>
     selectableBookmarkIds(child, filter)
   ) ?? [];
+}
+
+export function bookmarkTagsById(nodes: BookmarkNode[]): Map<string, string[]> {
+  const tagsById = new Map<string, string[]>();
+
+  function visit(node: BookmarkNode, inheritedTags: string[], depth: number) {
+    const tags =
+      !node.url && depth >= 2
+        ? normalizeTags([...inheritedTags, node.title])
+        : inheritedTags;
+
+    if (node.url) {
+      tagsById.set(node.id, [...inheritedTags]);
+    }
+    for (const child of node.children ?? []) {
+      visit(child, tags, depth + 1);
+    }
+  }
+
+  for (const node of nodes) {
+    visit(node, [], 0);
+  }
+  return tagsById;
 }

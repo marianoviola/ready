@@ -154,6 +154,13 @@ function validateBackup(value: unknown): string[] {
       errors.push(`Article ${index + 1} has an invalid reading status.`);
     }
     if (
+      article.tags !== undefined &&
+      (!Array.isArray(article.tags) ||
+        article.tags.some((tag) => typeof tag !== "string"))
+    ) {
+      errors.push(`Article ${index + 1} has invalid tags.`);
+    }
+    if (
       typeof article.progress !== "number" ||
       article.progress < 0 ||
       article.progress > 1
