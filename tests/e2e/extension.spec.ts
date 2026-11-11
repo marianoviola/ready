@@ -217,7 +217,22 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await page.getByRole("button", { name: "Tags", exact: true }).click();
     await expect(page.locator(".tag-directory-item")).toHaveCount(3);
     await expect(page.locator(".tag-directory-item").filter({ hasText: "Ready E2E" })).toContainText("2 articles");
+    for (const colorScheme of ["dark", "light"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.getByRole("button", { name: "Tags", exact: true }).click();
+      await page.keyboard.press("Tab");
+      const sourcesTab = page.getByRole("button", { name: /^Sources/ });
+      await expect(sourcesTab).toBeFocused();
+      await expect(sourcesTab).toHaveCSS("outline-style", "solid");
+      await expect(sourcesTab).toHaveCSS("outline-width", "2px");
+      await expect(sourcesTab).toHaveCSS("outline-offset", "-4px");
+      await expect(sourcesTab).toHaveCSS("outline-color", colorScheme === "dark" ? "rgb(164, 168, 255)" : "rgb(91, 95, 199)");
+      const tagCount = page.locator(".tag-directory-item .count").first();
+      await expect(tagCount).toHaveCSS("background-color", colorScheme === "dark" ? "rgb(61, 63, 101)" : "rgb(231, 229, 250)");
+      await expect(tagCount).toHaveCSS("color", colorScheme === "dark" ? "rgb(211, 213, 255)" : "rgb(36, 36, 36)");
+    }
     await page.getByLabel("Search tags").fill("Manual");
+    await expect(page.getByLabel("Search tags")).toHaveCSS("outline-style", "none");
     await expect(page.locator(".tag-directory-item")).toHaveCount(1);
     await page.locator(".tag-directory-item").click();
     await expect(page.locator(".article-card")).toHaveCount(1);
