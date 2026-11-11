@@ -126,9 +126,7 @@ export function SourcesPanel({
             return (
               <article className="source-card" key={source.id}>
                 <div className="source-card-header">
-                  <span className="source-monogram" aria-hidden="true">
-                    {source.name.slice(0, 1).toUpperCase()}
-                  </span>
+                  <SourceIcon key={source.url} url={source.url} />
                   <div className="source-identity">
                     <h3>{source.name}</h3>
                     <span>{source.domain}</span>
@@ -179,6 +177,27 @@ export function SourcesPanel({
         />
       )}
     </main>
+  );
+}
+
+function SourceIcon({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+  const faviconUrl = typeof chrome !== "undefined" && chrome.runtime?.id
+    ? `${chrome.runtime.getURL("_favicon/")}?${new URLSearchParams({ pageUrl: url, size: "32" })}`
+    : undefined;
+
+  return (
+    <span className="source-icon" aria-hidden="true">
+      {faviconUrl && !failed ? (
+        <img src={faviconUrl} alt="" onError={() => setFailed(true)} />
+      ) : (
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" />
+          <ellipse cx="12" cy="12" rx="4" ry="9" />
+          <path d="M3 12h18M5 6.5h14M5 17.5h14" />
+        </svg>
+      )}
+    </span>
   );
 }
 

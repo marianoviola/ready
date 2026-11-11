@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendReadyMessage } from "../browser/messages";
 import { db } from "../db/database";
 import {
@@ -6,7 +6,9 @@ import {
   type ArticleSort
 } from "../domain/article-sort";
 import { rankRecommendations } from "../domain/discovery";
-import { normalizeTags } from "../domain/tags";
+import { moveGroup, reconcileGroupOrder } from "../domain/group-order";
+import { mergeTags, normalizeTags } from "../domain/tags";
+import { urlsMatch } from "../domain/url";
 import type {
   Annotation,
   Article,
@@ -17,11 +19,14 @@ import type {
 import { BackupPanel } from "./BackupPanel";
 import { BookmarkPicker } from "./BookmarkPicker";
 import { SourceEditor, SourcesPanel } from "./SourcesPanel";
+import { TagEditor } from "./TagEditor";
 
-type View = "library" | "sources" | "discover" | "backup";
+type View = "library" | "tags" | "sources" | "discover" | "backup";
 type Grouping = "date" | "domain" | "status" | "tag";
+type GroupOrders = Record<Grouping, string[]>;
 
 export function App() {
+  const headerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>("library");
   const [articles, setArticles] = useState<Article[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
@@ -31,17 +36,43 @@ export function App() {
   const [statusFilter, setStatusFilter] = useState<ReadingStatus | "all">("all");
   const [orphanedOnly, setOrphanedOnly] = useState(false);
   const [domainFilter, setDomainFilter] = useState("all");
-  const [tagFilter, setTagFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("");
   const [grouping, setGrouping] = useState<Grouping>("status");
+  const [layout, setLayout] = useState<"list" | "kanban">("list");
+  const [groupOrders, setGroupOrders] = useState<GroupOrders>({ date: [], domain: [], status: [], tag: [] });
+  const [orderLoaded, setOrderLoaded] = useState(false);
+  const [orderBusy, setOrderBusy] = useState(false);
+  const [activeUrl, setActiveUrl] = useState("");
   const [sort, setSort] = useState<ArticleSort>("activity");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [picker, setPicker] = useState<"link" | "restore">();
   const [restoreArticleId, setRestoreArticleId] = useState<string>();
   const [sourceArticle, setSourceArticle] = useState<Article>();
+  const [tagEditor, setTagEditor] = useState<{ ids: string[]; initial: string[]; additive: boolean }>();
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [tagSearch, setTagSearch] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const updateHeight = () => {
+      header.parentElement?.style.setProperty("--app-header-height", `${header.getBoundingClientRect().height}px`);
+    };
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(header);
+    updateHeight();
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!message) return;
+    const timeout = window.setTimeout(() => setMessage(""), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
 
   const loadData = useCallback(async () => {
     try {
@@ -52,6 +83,7 @@ export function App() {
         db.ignoredRecommendations.toArray()
       ]);
       setArticles(nextArticles);
+      setSelectedIds((current) => new Set([...current].filter((id) => nextArticles.some((article) => article.id === id))));
       setAnnotations(nextAnnotations);
       setSources(nextSources);
       setRecommendations(
@@ -70,6 +102,62 @@ export function App() {
   }, [loadData]);
 
   useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
+    let disposed = false;
+    void chrome.storage.local.get("groupOrders").then((stored) => {
+      const value: unknown = stored.groupOrders;
+      if (value !== undefined) {
+        if (!value || typeof value !== "object") throw new Error("Saved group order is invalid.");
+        const next: GroupOrders = { date: [], domain: [], status: [], tag: [] };
+        for (const key of Object.keys(next) as Grouping[]) {
+          const order: unknown = Reflect.get(value, key);
+          if (order !== undefined) {
+            if (!Array.isArray(order) || !order.every((item: unknown) => typeof item === "string")) {
+              throw new Error("Saved group order is invalid.");
+            }
+            next[key] = order;
+          }
+        }
+        if (!disposed) setGroupOrders(next);
+      }
+      if (!disposed) setOrderLoaded(true);
+    }).catch((reason: unknown) => {
+      if (!disposed) setError(reason instanceof Error ? reason.message : "Group order could not be loaded.");
+    });
+    return () => { disposed = true; };
+  }, []);
+
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
+    let disposed = false;
+    let revision = 0;
+    const refresh = () => {
+      const current = ++revision;
+      void chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        if (!disposed && current === revision) setActiveUrl(tab?.url ?? "");
+      }).catch((reason: unknown) => {
+        if (!disposed && current === revision) {
+          setActiveUrl("");
+          setError(reason instanceof Error ? reason.message : "The current page could not be identified.");
+        }
+      });
+    };
+    const updated: Parameters<typeof chrome.tabs.onUpdated.addListener>[0] = (_id, change, tab) => {
+      if (tab.active && (change.url !== undefined || change.status === "complete")) refresh();
+    };
+    chrome.tabs.onActivated.addListener(refresh);
+    chrome.tabs.onUpdated.addListener(updated);
+    chrome.tabs.onRemoved.addListener(refresh);
+    refresh();
+    return () => {
+      disposed = true;
+      chrome.tabs.onActivated.removeListener(refresh);
+      chrome.tabs.onUpdated.removeListener(updated);
+      chrome.tabs.onRemoved.removeListener(refresh);
+    };
+  }, []);
+
+  useEffect(() => {
     setCollapsedGroups(new Set());
   }, [grouping]);
 
@@ -79,7 +167,7 @@ export function App() {
   );
   const tags = useMemo(
     () =>
-      [...new Set(articles.flatMap((article) => article.tags ?? []))].sort((left, right) =>
+      normalizeTags(articles.flatMap((article) => article.tags ?? [])).sort((left, right) =>
         left.localeCompare(right)
       ),
     [articles]
@@ -87,7 +175,7 @@ export function App() {
 
   useEffect(() => {
     setTagFilter((current) =>
-      current === "all" || tags.includes(current) ? current : "all"
+      current === "" || tags.includes(current) ? current : ""
     );
     if (tags.length === 0) {
       setGrouping((current) => current === "tag" ? "status" : current);
@@ -114,7 +202,7 @@ export function App() {
       .filter((article) => !orphanedOnly || article.bookmarkState === "orphaned")
       .filter((article) => domainFilter === "all" || article.domain === domainFilter)
       .filter(
-        (article) => tagFilter === "all" || (article.tags ?? []).includes(tagFilter)
+        (article) => tagFilter === "" || (article.tags ?? []).some((tag) => tag.toLocaleLowerCase() === tagFilter.toLocaleLowerCase())
       )
       .filter(
         (article) =>
@@ -145,15 +233,39 @@ export function App() {
           : grouping === "domain"
             ? [article.domain]
             : grouping === "tag"
-              ? (article.tags && article.tags.length > 0 ? article.tags : ["Unlabeled"])
+              ? (article.tags && article.tags.length > 0
+                ? normalizeTags(article.tags).map((tag) => tags.find((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase()) ?? tag)
+                : [""])
               : [dateGroup(article.originalSavedAt)];
 
       for (const key of groupKeys) {
         groups.set(key, [...(groups.get(key) ?? []), article]);
       }
     }
-    return [...groups.entries()];
-  }, [filtered, grouping]);
+    return reconcileGroupOrder(groupOrders[grouping], [...groups.keys()])
+      .filter((key) => groups.has(key))
+      .map((key): [string, Article[]] => [key, groups.get(key)!]);
+  }, [filtered, grouping, tags, groupOrders]);
+
+  async function reorderGroup(group: string, direction: -1 | 1) {
+    setOrderBusy(true);
+    try {
+      const next = {
+        ...groupOrders,
+        [grouping]: moveGroup(groupOrders[grouping], grouped.map(([key]) => key), group, direction)
+      };
+      await chrome.storage.local.set({ groupOrders: next });
+      setGroupOrders(next);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Group order could not be saved.");
+    } finally {
+      setOrderBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    setSelectedIds((current) => new Set([...current].filter((id) => filtered.some((article) => article.id === id))));
+  }, [filtered]);
 
   async function saveCurrentPage() {
     clearFeedback();
@@ -220,23 +332,57 @@ export function App() {
     }
   }
 
-  async function editTags(article: Article) {
-    const value = window.prompt(
-      "Tags (comma-separated):",
-      article.tags?.join(", ") ?? ""
-    );
-    if (value === null) return;
-
+  async function saveTags(tags: string[]) {
+    if (!tagEditor) throw new Error("No articles selected for tag editing.");
     clearFeedback();
+    await db.transaction("rw", db.articles, async () => {
+      for (const id of tagEditor.ids) {
+        const article = await db.articles.get(id);
+        if (!article) throw new Error("An article no longer exists. Reload the library and try again.");
+        await db.articles.update(id, {
+          tags: tagEditor.additive ? mergeTags(article.tags, tags) : normalizeTags(tags),
+          updatedAt: Date.now()
+        });
+      }
+    });
+    setTagEditor(undefined);
+    await loadData();
+    setMessage("Tags updated.");
+  }
+
+  async function bulkAction(action: "remove" | ReadingStatus) {
+    const selected = filtered.filter((article) => selectedIds.has(article.id));
+    if (selected.length === 0) return;
+    let deleteBookmark = false;
+    if (action === "remove") {
+      if (!window.confirm(`Remove ${selected.length} articles from Ready? Their progress, highlights, and notes will be deleted.`)) return;
+      if (selected.some((article) => article.bookmarkState === "linked")) {
+        deleteBookmark = window.confirm("Also delete the linked Edge Favorites?");
+      }
+    }
+    clearFeedback();
+    setBulkBusy(true);
+    let completed = 0;
     try {
-      await db.articles.update(article.id, {
-        tags: normalizeTags(value.split(",")),
-        updatedAt: Date.now()
-      });
-      setMessage("Tags updated.");
+      for (const article of selected) {
+        const response = await sendReadyMessage(action === "remove"
+          ? { type: "REMOVE_ARTICLE", articleId: article.id, deleteBookmark }
+          : { type: "SET_STATUS", articleId: article.id, status: action });
+        if (!response.ok) throw new Error(response.error);
+        completed++;
+        setSelectedIds((current) => {
+          const next = new Set(current);
+          next.delete(article.id);
+          return next;
+        });
+      }
       await loadData();
+      setMessage(`${completed} articles ${action === "remove" ? "removed" : "updated"}.`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Tags could not be updated.");
+      await loadData();
+      setError(`${completed} of ${selected.length} articles ${action === "remove" ? "removed" : "updated"}. ${reason instanceof Error ? reason.message : "The bulk action failed."}`);
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -325,9 +471,10 @@ export function App() {
 
   return (
     <div className="app-shell">
+      <div className="app-header" ref={headerRef}>
       <header className="topbar">
         <div className="brand">
-          <img className="brand-mark" src="/icons/ready.svg" alt="" />
+          <img className="brand-mark" src="/icons/ready-48.png" alt="" />
           <div>
             <h1>Ready</h1>
             <span>Your reading, kept local</span>
@@ -339,7 +486,7 @@ export function App() {
       </header>
 
       <nav className="tabs" aria-label="Ready sections">
-        {(["library", "sources", "discover", "backup"] as View[]).map((item) => (
+        {(["library", "tags", "sources", "discover", "backup"] as View[]).map((item) => (
           <button
             key={item}
             className={view === item ? "tab active" : "tab"}
@@ -348,6 +495,8 @@ export function App() {
           >
             {item === "library"
               ? "Library"
+              : item === "tags"
+                ? "Tags"
               : item === "sources"
                 ? "Sources"
                 : item === "discover"
@@ -358,9 +507,20 @@ export function App() {
           </button>
         ))}
       </nav>
+      </div>
 
-      {error && <div className="feedback error" role="alert">{error}</div>}
-      {message && <div className="feedback success" role="status">{message}</div>}
+      {error && (
+        <div className="feedback error" role="alert">
+          <span>{error}</span>
+          <button type="button" className="feedback-dismiss" aria-label="Dismiss error" onClick={() => setError("")}>×</button>
+        </div>
+      )}
+      {message && (
+        <div className="feedback success" role="status">
+          <span>{message}</span>
+          <button type="button" className="feedback-dismiss" aria-label="Dismiss notification" onClick={() => setMessage("")}>×</button>
+        </div>
+      )}
 
       {view === "library" && (
         <main className="library">
@@ -413,7 +573,7 @@ export function App() {
               <label className="select-field">
                 <span className="sr-only">Filter by tag</span>
                 <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} aria-label="Tag">
-                  <option value="all">All tags</option>
+                  <option value="">All tags</option>
                   {tags.map((tag) => (
                     <option key={tag} value={tag}>
                       {tag}
@@ -459,6 +619,39 @@ export function App() {
             </div>
           </div>
 
+          <div className="library-tools">
+            <label className="selection-toggle">
+              <input
+                type="checkbox"
+                aria-label="Select all visible articles"
+                checked={filtered.length > 0 && filtered.every((article) => selectedIds.has(article.id))}
+                disabled={bulkBusy || filtered.length === 0}
+                onChange={(event) => setSelectedIds(event.target.checked ? new Set(filtered.map((article) => article.id)) : new Set())}
+              />
+              Select all
+            </label>
+            <div className="layout-toggle" role="group" aria-label="Group layout">
+              <button type="button" aria-pressed={layout === "list"} onClick={() => setLayout("list")}>List</button>
+              <button type="button" aria-pressed={layout === "kanban"} onClick={() => setLayout("kanban")}>Kanban</button>
+            </div>
+          </div>
+          {selectedIds.size > 0 && (
+            <div className="bulk-toolbar" role="group" aria-label="Bulk actions" aria-busy={bulkBusy}>
+              <strong>{selectedIds.size} selected</strong>
+              <button className="text-button" disabled={bulkBusy} onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+              <button className="button secondary compact" disabled={bulkBusy} onClick={() => setTagEditor({ ids: [...selectedIds], initial: [], additive: true })}>Add tags</button>
+              <label className="select-field">
+                <select aria-label="Set selected status" value="" disabled={bulkBusy} onChange={(event) => { if (event.target.value) void bulkAction(event.target.value as ReadingStatus); }}>
+                  <option value="" disabled>Change status</option>
+                  <option value="unread">Unread</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="read">Read</option>
+                </select>
+              </label>
+              <button className="button secondary compact danger-text" disabled={bulkBusy} onClick={() => void bulkAction("remove")}>Remove selected</button>
+            </div>
+          )}
+
           {loading ? (
             <EmptyState title="Opening your library…" detail="Ready is loading local reading data." />
           ) : grouped.length === 0 ? (
@@ -467,29 +660,48 @@ export function App() {
               detail={articles.length === 0 ? "Save this page or link existing Edge Favorites to begin." : "Try changing the filters or search."}
             />
           ) : (
-            grouped.map(([group, items]) => {
+            <div className={`article-groups ${layout}`} tabIndex={layout === "kanban" ? 0 : undefined} role="region" aria-label="Article groups">
+            {grouped.map(([group, items], groupIndex) => {
               const collapsed = collapsedGroups.has(`${grouping}:${group}`);
               return (
               <section className="article-group" key={group}>
+                <div className="group-header">
                 <button
                   className="group-heading"
                   type="button"
                   aria-expanded={!collapsed}
                   onClick={() => toggleGroup(group)}
                 >
-                  <span className="group-chevron" aria-hidden="true">
-                    {collapsed ? "›" : "⌄"}
-                  </span>
-                  <h2>{group}</h2>
+                  <svg className="group-chevron" aria-hidden="true" viewBox="0 0 16 16"><path d={collapsed ? "m6 3 5 5-5 5" : "m3 6 5 5 5-5"} /></svg>
+                  <h2>{group || "Unlabeled"}</h2>
                   <span>{items.length}</span>
                 </button>
+                <div className="group-order" role="group" aria-label={`Order ${group || "Unlabeled"}`}>
+                  {([-1, 1] as const).map((direction) => (
+                    <button
+                      key={direction}
+                      type="button"
+                      aria-label={`Move ${group || "Unlabeled"} ${direction === -1 ? "earlier" : "later"}`}
+                      title={`Move ${direction === -1 ? "earlier" : "later"}`}
+                      disabled={!orderLoaded || orderBusy || (direction === -1 ? groupIndex === 0 : groupIndex === grouped.length - 1)}
+                      onClick={() => void reorderGroup(group, direction)}
+                    >
+                      <svg aria-hidden="true" viewBox="0 0 16 16" className={layout === "kanban" ? "horizontal-arrow" : undefined}>
+                        <path d={direction === -1 ? "m4 9 4-4 4 4" : "m4 7 4 4 4-4"} />
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+                </div>
                 {!collapsed && <div className="article-list">
                   {items.map((article) => (
                     <ArticleCard
                       key={article.id}
                       article={article}
+                      currentPage={!!activeUrl && [article.originalUrl, article.normalizedUrl, article.canonicalUrl].some((url) => !!url && urlsMatch(url, activeUrl))}
                       annotations={annotations.filter((item) => item.articleId === article.id)}
                       selected={selectedIds.has(article.id)}
+                      selectionDisabled={bulkBusy}
                       onSelected={(selected) => {
                         const next = new Set(selectedIds);
                         if (selected) next.add(article.id); else next.delete(article.id);
@@ -502,7 +714,7 @@ export function App() {
                         setPicker("restore");
                       }}
                       onRemove={removeArticle}
-                      onEditTags={editTags}
+                      onEditTags={(article) => setTagEditor({ ids: [article.id], initial: article.tags ?? [], additive: false })}
                       sourceSaved={sources.some((source) => source.domain === article.domain)}
                       onSource={() => {
                         if (sources.some((source) => source.domain === article.domain)) {
@@ -518,7 +730,8 @@ export function App() {
                 </div>}
               </section>
               );
-            })
+            })}
+            </div>
           )}
         </main>
       )}
@@ -556,6 +769,38 @@ export function App() {
         </main>
       )}
 
+      {view === "tags" && (
+        <main className="panel-page">
+          <div className="section-heading">
+            <p className="eyebrow">Your library</p>
+            <h2>Tags</h2>
+            <p className="muted">Browse all tags. Add or create tags from an article or a selection.</p>
+          </div>
+          <label className="search-box">
+            <span className="sr-only">Search tags</span>
+            <input type="search" placeholder="Search tags" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} />
+          </label>
+          {tags.length === 0 ? <EmptyState title="No tags yet" detail="Use Add tags on an article to create your first tag." /> : (
+            <div className="tag-directory">
+              {tags.filter((tag) => tag.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase())).map((tag) => (
+                <button className="tag-directory-item" key={tag} onClick={() => {
+                  setSearch("");
+                  setStatusFilter("all");
+                  setDomainFilter("all");
+                  setOrphanedOnly(false);
+                  setTagFilter(tag);
+                  setView("library");
+                }}>
+                  <span>{tag}</span>
+                  <span className="count">{articles.filter((article) => article.tags?.some((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase())).length} articles</span>
+                </button>
+              ))}
+              {!tags.some((tag) => tag.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase())) && <EmptyState title="No tags match" detail="Try a different search." />}
+            </div>
+          )}
+        </main>
+      )}
+
       {view === "sources" && (
         <SourcesPanel
           sources={sources}
@@ -566,6 +811,7 @@ export function App() {
             setStatusFilter("all");
             setOrphanedOnly(false);
             setDomainFilter(domain);
+            setTagFilter("");
             setView("library");
           }}
         />
@@ -603,20 +849,25 @@ export function App() {
           onSave={saveSourceFromArticle}
         />
       )}
+      {tagEditor && (
+        <TagEditor initial={tagEditor.initial} available={tags} additive={tagEditor.additive} onClose={() => setTagEditor(undefined)} onSave={saveTags} />
+      )}
     </div>
   );
 }
 
 interface ArticleCardProps {
   article: Article;
+  currentPage: boolean;
   annotations: Annotation[];
   selected: boolean;
+  selectionDisabled: boolean;
   onSelected: (selected: boolean) => void;
   onOpen: (article: Article, resume: boolean) => Promise<void>;
   onStatus: (id: string, status: ReadingStatus) => Promise<void>;
   onRestore: () => void;
   onRemove: (article: Article) => Promise<void>;
-  onEditTags: (article: Article) => Promise<void>;
+  onEditTags: (article: Article) => void;
   sourceSaved: boolean;
   onSource: () => void;
   onEditAnnotation: (annotation: Annotation) => Promise<void>;
@@ -626,9 +877,9 @@ interface ArticleCardProps {
 function ArticleCard(props: ArticleCardProps) {
   const { article, annotations } = props;
   return (
-    <article className="article-card">
+    <article className={`article-card${props.currentPage ? " current-page" : ""}`}>
       <div className="article-select">
-        <input type="checkbox" checked={props.selected} onChange={(event) => props.onSelected(event.target.checked)} aria-label={`Select ${article.title}`} />
+        <input type="checkbox" checked={props.selected} disabled={props.selectionDisabled} onChange={(event) => props.onSelected(event.target.checked)} aria-label={`Select ${article.title}`} />
       </div>
       <div className="article-body">
         <div className="article-topline">
@@ -637,6 +888,7 @@ function ArticleCard(props: ArticleCardProps) {
           <span>·</span>
           <time dateTime={new Date(article.originalSavedAt).toISOString()}>{relativeDate(article.originalSavedAt)}</time>
           {article.bookmarkState === "orphaned" && <span className="orphan-badge">Favorite removed</span>}
+          {props.currentPage && <span className="current-page-badge" aria-current="page">Current page</span>}
         </div>
         <button className="article-title" onClick={() => void props.onOpen(article, false)}>{article.title}</button>
         {(article.tags?.length ?? 0) > 0 && (

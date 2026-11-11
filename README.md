@@ -12,7 +12,10 @@ Ready is a local-first Microsoft Edge extension that turns existing Favorites in
 - Save a text-anchored reading position and offer an explicit **Resume reading** action.
 - Create persistent CSS Custom Highlight API highlights and optional private notes.
 - Search local article metadata and notes.
-- Filter by reading status, website, and orphan state; sort by recent activity or saved date; group by status, website, or date with collapsible sections.
+- Filter by reading status, website, tag, and orphan state; sort by recent activity or saved date; group by status, website, date, or tag with collapsible sections in List or horizontally scrolling Kanban layout.
+- Inherit tags from Favorite folders when linking, then edit them in an integrated editor with reusable existing tags and new tag creation.
+- Browse all used tags and article counts in the **Tags** tab; select a tag to open its articles.
+- Select visible articles for bulk tag addition, reading-status changes, or removal, with separate confirmation before deleting linked Edge Favorites.
 - Keep a separate directory of websites to browse manually, with private notes and subscription status.
 - Show deterministic, on-device forgotten, unfinished, and related recommendations.
 - Export selected or all reading data to a versioned, browser-independent JSON file.
@@ -77,10 +80,45 @@ Sources are websites or publications you want to keep independently from saved
 articles. Add a URL and optional name, note, and subscription status from the
 **Sources** tab. Ready does not scrape, fetch, or monitor the website; **Open**
 simply navigates to it in a new tab.
+Use **Add source** on a saved article to prefill the source website.
+Source cards use the browser's favicon service, with a neutral globe fallback if
+the icon cannot load. No third-party favicon provider is used.
 
 When saved articles share the Source domain, **View saved** opens the Library
 filtered to that website. Removing a Source never removes its articles or Edge
 Favorites.
+
+## Tags and library layouts
+
+Use **Edit tags** (or **Add tags**) on an article to open the tag editor.
+Select existing tags, or type a new name and press Enter or **Create tag**.
+Remove a selected chip to unassign it, then **Save tags**. Tag names are
+case-insensitively deduplicated and can include commas.
+
+The **Tags** directory shows tags currently used in the library, with counts.
+Clicking a tag clears other filters and opens its saved articles.
+**List** stacks groups vertically; **Kanban** places the same groups in
+horizontal, scrollable columns without drag-and-drop.
+Use the arrows beside each group heading to move it earlier or later. The order
+is saved locally per grouping (status, date, website, or tag), shared between
+List and Kanban, and retained across reloads. Filtering hides groups without
+discarding their saved positions.
+
+The saved article matching the active tab in the sidebar's window has a
+**Current page** badge and highlighted border. This updates when switching tabs
+or navigating, ignoring URL fragments and tracking parameters while preserving
+meaningful query parameters. Original and known canonical URLs are matched.
+
+Use article checkboxes or **Select all** to reveal bulk actions. Selection is
+accessible while scrolling: the bulk toolbar stays below the sticky navigation.
+Success notifications disappear after six seconds and can also be dismissed;
+errors remain visible until dismissed or cleared by a subsequent action.
+Selection is
+limited to articles matching the current filters and search (including collapsed
+groups); changing filters drops hidden selections. Bulk **Add tags** keeps each
+article's existing tags. Status changes and removals use the same operations as
+individual articles. If a bulk operation fails partway, Ready reports how many
+articles completed and keeps remaining articles selected.
 
 ## Architecture
 
@@ -126,6 +164,7 @@ The service worker holds no required in-memory state. Every operation reads or w
 | `scripting` | Inject the reading layer after site access is granted. |
 | `storage` | Carry a one-time resume request across opening a new tab. |
 | `contextMenus` | Save a page or selected passage from the page menu. |
+| `favicon` | Display website icons from the browser's favicon service in Sources. |
 | Optional `http://*/*`, `https://*/*` | Granted per site at user request for progress, highlights, and resume. |
 
 Ready cannot run on browser-internal pages such as `edge://` URLs. Site access can be reviewed or revoked in Edge's extension settings.
