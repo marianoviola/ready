@@ -2,6 +2,13 @@
 
 Ready is a local-first Microsoft Edge extension that turns existing Favorites into a private reading library. Edge remains the source of truth for bookmark URLs, titles, folders, creation dates, and native synchronization. Ready stores only reading-specific data in IndexedDB.
 
+**Public beta preparation — 0.1.0.** Ready is not yet a stable release. Keep a JSON
+backup before updating or uninstalling. Source publication, GitHub releases, and
+Edge Add-ons approval are separate steps; this repository does not imply a store listing.
+
+[Privacy policy](https://marianoviola.com/privacy/#ready) ·
+[Contact & support](https://marianoviola.com/contact/)
+
 ## What works
 
 - Link individual Favorites or entire Favorite folders without creating copies.
@@ -21,19 +28,22 @@ Ready is a local-first Microsoft Edge extension that turns existing Favorites in
 - Export selected or all reading data to a versioned, browser-independent JSON file.
 - Preview, reconcile, and non-destructively merge JSON imports.
 
-All data stays on the device. Ready has no backend, account, analytics, telemetry, paid API, or AI dependency.
+Ready's reading data stays in your browser profile. Ready has no backend, account,
+analytics, telemetry, paid API, or AI dependency. Edge may sync Favorites when you
+enable browser sync. Opening sites, browser favicon retrieval, store updates, and
+the support website remain subject to their own services and privacy policies.
 
 ## Development
 
 Requirements:
 
-- Node.js 20 or newer.
+- Node.js 22.12 or newer (CI uses Node.js 24).
 - Microsoft Edge 120 or newer.
 
 Install and validate:
 
 ```bash
-npm install
+npm ci
 npm run check
 ```
 
@@ -44,7 +54,9 @@ npm run dev          # Vite development server for the sidebar UI
 npm run typecheck    # strict TypeScript validation
 npm test             # Vitest domain and persistence tests
 npm run build        # production extension in dist/
-npm run test:e2e     # build and run Playwright extension smoke test
+npm run test:e2e     # build and run Playwright extension integration tests
+npm run package     # build a beta ZIP with licenses and SHA-256 checksum
+npm run test:distribution # verify the generated ZIP (run package first)
 ```
 
 Playwright's Chromium binary is installed separately when needed:
@@ -55,14 +67,92 @@ npx playwright install chromium
 
 ## Install in Microsoft Edge
 
-1. Run `npm run build`.
+1. Build with `npm run build`, or download an available beta ZIP from
+   [GitHub Releases](https://github.com/marianoviola/ready/releases), verify its
+   checksum, and extract it to a permanent directory.
 2. Open `edge://extensions`.
 3. Enable **Developer mode**.
 4. Select **Load unpacked**.
-5. Choose the generated `dist/` directory.
+5. Choose the generated `dist/` directory, or the extracted directory containing
+   `manifest.json` (not the ZIP file).
 6. Pin Ready if desired. Selecting its toolbar icon opens the Ready sidebar.
 
 The default keyboard shortcut **Alt+Shift+S** saves the active page. It can be changed at `edge://extensions/shortcuts`.
+
+For an unpacked update, export a backup, replace the files in the same directory,
+then select **Reload** in `edge://extensions`. Do not uninstall just to update:
+uninstalling removes Ready's local reading data. Favorites and exported backups
+are separate and remain under your control.
+
+## Distribution and release
+
+Packaging requires the `zip` command; distribution tests also require `unzip`
+(available on macOS and the Ubuntu CI runner). Consumers on Windows can extract
+the resulting ZIP without these developer tools.
+
+```bash
+npm ci
+npm run check
+npm run package
+npm run test:distribution
+npm run test:e2e
+```
+
+The package is `release/ready-0.1.0.zip`, accompanied by
+`ready-0.1.0.zip.sha256`. It contains the manifest at the archive root, the built
+extension, MIT license, and third-party license notices. Source maps and development
+files are excluded. Entries are sorted and timestamps normalized for repeatable
+packaging of the same build and installed dependencies.
+On macOS, verify a downloaded pair with `shasum -a 256 -c ready-0.1.0.zip.sha256`;
+on Linux use `sha256sum -c ready-0.1.0.zip.sha256`.
+
+CI checks types, unit tests, production build, package contents, and headed Chromium
+extension tests under Xvfb. It uploads a beta artifact but does not publish it.
+Chromium integration tests do not replace manual testing in Microsoft Edge.
+
+To prepare a GitHub release after review:
+
+1. Keep `package.json`, its lockfile, and `public/manifest.json` versions aligned;
+   update `version_name` for the beta display name.
+2. Commit and push the reviewed changes and an explicit matching tag such as
+   `v0.1.0`.
+3. Run **Beta release** in GitHub Actions with that existing tag. It validates the
+   tagged source and creates a **draft prerelease** with ZIP and checksum.
+4. Inspect the draft, artifacts, and release notes before publishing manually.
+   The workflow never publishes a release or submits to a store automatically.
+
+`private: true` in `package.json` intentionally prevents npm publication; it does
+not control the GitHub repository's visibility.
+
+### Edge Add-ons submission
+
+Suggested listing:
+
+- **Name:** Ready
+- **Summary:** Turn Edge Favorites into a private, local-first reading library.
+- **Description:** Organise saved articles with tags, filters, and List or Kanban
+  groups. Track reading progress, resume where you stopped, and keep highlights
+  and notes locally. Link existing Favorites without duplicating them and export
+  your reading data as JSON. No account or Ready server.
+- **Privacy URL:** <https://marianoviola.com/privacy/#ready>
+- **Support URL:** <https://marianoviola.com/contact/>
+
+Before public distribution:
+
+- Publish the shared privacy-policy update so the Ready section is live.
+- Review tracked files and the **entire Git history**, author identities, and
+  third-party assets before making the repository public. Tests and CI are not a
+  security audit or a guarantee that history contains no secrets.
+- Manually test the packaged extension in Edge: permissions, save/link/restore,
+  reading layer, tags, bulk deletion confirmation, backup/import, updates, and
+  uninstall behavior. Back up real reading data first.
+- Prepare actual Edge screenshots and the icons/promotional assets requested
+  by Partner Center. Do not describe Chromium-only checks as Edge certification.
+- Complete Partner Center's current permissions, privacy, and data-use
+  declarations accurately, distinguishing local processing from collection by
+  the publisher. Explain each permission using the table below.
+- Upload the ZIP (not its enclosing folder), review the listing and beta status,
+  then submit manually. Store acceptance is not guaranteed by these checks.
 
 ## Using the reading layer
 
@@ -173,7 +263,7 @@ Restoration prioritizes quote/context matching and uses text position only as a 
 
 ### Service worker suspension
 
-The service worker holds no required in-memory state. Every operation reads or writes IndexedDB, Edge Favorites, or `chrome.storage.session`, so Manifest V3 suspension does not lose reading data.
+The service worker holds no required in-memory state. Every operation reads or writes IndexedDB, Edge Favorites, or browser storage (`chrome.storage.local` and `chrome.storage.session`), so Manifest V3 suspension does not lose reading data.
 
 ## Permissions
 
@@ -183,7 +273,7 @@ The service worker holds no required in-memory state. Every operation reads or w
 | `sidePanel` | Display the Ready library in the Edge sidebar. |
 | `activeTab` / `tabs` | Identify the current page and open saved articles. |
 | `scripting` | Inject the reading layer after site access is granted. |
-| `storage` | Carry a one-time resume request across opening a new tab. |
+| `storage` | Store local preferences such as bookmark destination and carry a one-time resume request across opening a new tab. |
 | `contextMenus` | Save a page or selected passage from the page menu. |
 | `favicon` | Display website icons from the browser's favicon service in Sources. |
 | Optional `http://*/*`, `https://*/*` | Granted per site at user request for progress, highlights, and resume. |
@@ -201,7 +291,10 @@ Vitest covers:
 - Versioned backup validation and non-destructive merge behavior.
 - IndexedDB schema creation.
 
-Playwright includes a built-extension smoke test that launches Chromium with the unpacked extension and verifies the sidebar entry point.
+Playwright launches Chromium with the built extension and exercises the sidebar,
+reading layer, tags, layouts, bulk actions, active-page indicators, bookmark
+destinations, and support links. Distribution tests inspect the ZIP's entry point,
+referenced assets, versions, licenses, checksum, and repeatable packaging.
 
 ## Known limitations
 
@@ -224,3 +317,12 @@ Backups use `schemaVersion: 2` and contain:
 - ISO export timestamp.
 
 Imports are validated before writes. Existing articles and Sources are matched by normalized URL, newer metadata wins, the earliest saved date is preserved, and annotations/sessions are remapped to the stable local article ID. Version 1 backups remain importable and are upgraded with an empty Sources list.
+
+## Privacy, support, and license
+
+Read the [shared privacy policy, Ready section](https://marianoviola.com/privacy/#ready).
+For support or private bug reports, use the [contact page](https://marianoviola.com/contact/).
+Avoid sending reading backups, private URLs, or notes unless needed and intentionally shared.
+
+Ready is licensed under the [MIT License](./LICENSE). Bundled dependencies retain
+their own licenses, included in `THIRD-PARTY-NOTICES.txt` inside distribution ZIPs.

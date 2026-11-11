@@ -11,7 +11,7 @@ await Promise.all([
     format: "esm",
     platform: "browser",
     target: "chrome120",
-    sourcemap: true
+    sourcemap: false
   }),
   build({
     entryPoints: ["src/content/index.ts"],
@@ -20,7 +20,7 @@ await Promise.all([
     format: "iife",
     platform: "browser",
     target: "chrome120",
-    sourcemap: true
+    sourcemap: false
   }),
   copyFile("public/manifest.json", "dist/manifest.json")
 ]);

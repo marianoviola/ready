@@ -2,10 +2,26 @@
   "name": "ready-edge-extension",
   "private": true,
   "version": "0.1.0",
+  "description": "A local-first reading library for Microsoft Edge Favorites.",
+  "license": "MIT",
+  "author": "Mariano Viola",
+  "homepage": "https://github.com/marianoviola/ready#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marianoviola/ready.git"
+  },
+  "bugs": {
+    "url": "https://marianoviola.com/contact/"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/build-extension.mjs",
+    "package": "npm run build && node scripts/package-extension.mjs",
+    "test:distribution": "node --test tests/distribution.test.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

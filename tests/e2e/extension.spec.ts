@@ -308,6 +308,10 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Bookmark destination" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Backup & restore" })).toBeVisible();
+    const versionName = await page.evaluate(() => chrome.runtime.getManifest().version_name);
+    await expect(page.getByRole("heading", { name: `Ready ${versionName}`, exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Privacy", exact: true })).toHaveAttribute("href", "https://marianoviola.com/privacy/#ready");
+    await expect(page.getByRole("link", { name: "Contact & support", exact: true })).toHaveAttribute("href", "https://marianoviola.com/contact/");
     await expect(page.locator(".destination-path")).toHaveText("Ready (created on first save)");
     expect(await page.evaluate(async () => (await chrome.bookmarks.search({ title: "Ready" })).length)).toBe(0);
     const destinationPage = await context.newPage();

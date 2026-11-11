@@ -827,6 +827,17 @@ export function App() {
             selectedIds={selectedIds}
             onChanged={loadData}
           />
+          <div className="settings-preferences">
+            <section className="settings-card" aria-label="About Ready">
+              <h3>Ready {chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}</h3>
+              <p className="muted">A local-first reading library. No account, analytics, or Ready server.</p>
+              <p className="muted">Beta software: export a backup before updating or uninstalling.</p>
+              <div className="button-row">
+                <a href="https://marianoviola.com/privacy/#ready" target="_blank" rel="noopener noreferrer">Privacy</a>
+                <a href="https://marianoviola.com/contact/" target="_blank" rel="noopener noreferrer">Contact &amp; support</a>
+              </div>
+            </section>
+          </div>
         </>
       )}
 

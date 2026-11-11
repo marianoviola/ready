@@ -1,0 +1,62 @@
+name: Beta release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag (for example v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Check release tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+            if (process.env.RELEASE_TAG !== `v${version}`) throw new Error("Tag must match package version");
+          '
+          git show-ref --verify "refs/tags/$RELEASE_TAG"
+      - run: npm run check
+      - run: node scripts/package-extension.mjs
+      - run: npm run test:distribution
+      - run: npx playwright install --with-deps chromium
+      - run: xvfb-run -a npx playwright test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ready-beta-release
+          path: release/*
+          if-no-files-found: error
+  draft:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ready-beta-release
+          path: release
+      - name: Create draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release create "$RELEASE_TAG" release/* --verify-tag --draft --prerelease --title "Ready $RELEASE_TAG beta" --generate-notes
