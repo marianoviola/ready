@@ -88,6 +88,27 @@ When saved articles share the Source domain, **View saved** opens the Library
 filtered to that website. Removing a Source never removes its articles or Edge
 Favorites.
 
+## Bookmark destination
+
+Open **Settings** to choose where newly created Favorites are stored. By default,
+Ready creates its own **Ready** folder on the first save, in the browser's default
+Favorites location. **Choose folder** selects an existing folder; **Use Ready
+folder** restores the default. These preferences stay local and are not included
+in JSON backups. Backup and restore tools are also under **Settings**.
+
+The destination applies to saves from the sidebar, keyboard shortcut, and context
+menu. Existing matching Favorites are reused without moving or duplicating them.
+Restoring an orphan can still use an explicitly chosen destination.
+If a custom destination is deleted, saving reports an error instead of silently
+using another folder; choose another folder or reset to Ready in Settings.
+If Ready's own folder is deleted, it is recreated on the next save that needs it.
+
+Folder names are inherited as tags when saving or linking Favorites, except for
+the technical folder created by Ready (identified by its ID, not its name).
+User-created folders named Ready and subfolders inside the technical folder
+continue to contribute their own tags. Changing the destination does not move
+existing Favorites or retag existing articles.
+
 ## Tags and library layouts
 
 Use **Edit tags** (or **Add tags**) on an article to open the tag editor.

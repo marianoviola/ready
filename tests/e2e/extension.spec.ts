@@ -305,6 +305,57 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     expect(await page.evaluate(async () => (await chrome.bookmarks.search({ url: "https://example.com/first" })).length)).toBe(0);
     expect(await page.evaluate(async () => (await chrome.bookmarks.search({ url: "https://example.com/second" })).length)).toBe(0);
 
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Bookmark destination" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Backup & restore" })).toBeVisible();
+    await expect(page.locator(".destination-path")).toHaveText("Ready (created on first save)");
+    expect(await page.evaluate(async () => (await chrome.bookmarks.search({ title: "Ready" })).length)).toBe(0);
+    const destinationPage = await context.newPage();
+    async function saveAt(url: string) {
+      await destinationPage.goto(url);
+      await destinationPage.bringToFront();
+      return page.evaluate(() => chrome.runtime.sendMessage({ type: "SAVE_ACTIVE_PAGE" }));
+    }
+    const defaultSave = await saveAt("https://example.com/default-save");
+    expect(defaultSave.ok).toBe(true);
+    const readyFolderId = await page.evaluate(async () => {
+      const settings = await chrome.storage.local.get("readyFolderId");
+      return String(settings.readyFolderId);
+    });
+    expect(await page.evaluate(async (id) => {
+      const [bookmark] = await chrome.bookmarks.search({ url: "https://example.com/default-save" });
+      return bookmark.parentId === id;
+    }, readyFolderId)).toBe(true);
+    expect(defaultSave.article.tags).toEqual([]);
+    await page.getByRole("button", { name: "Choose folder", exact: true }).click();
+    await page.getByRole("radio", { name: "Select Nested", exact: true }).check();
+    await page.getByRole("button", { name: "Use folder", exact: true }).click();
+    await expect(page.locator(".destination-path")).toContainText("Ready E2E / Nested");
+    await page.reload();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.locator(".destination-path")).toContainText("Ready E2E / Nested");
+    const customSave = await saveAt("https://example.com/custom-save");
+    expect(customSave.ok).toBe(true);
+    expect(customSave.article.tags).toEqual(["Ready E2E", "Nested"]);
+    expect((await saveAt("https://example.com/default-save")).createdBookmark).toBe(false);
+    expect(await page.evaluate(async () => {
+      const [bookmark] = await chrome.bookmarks.search({ url: "https://example.com/default-save" });
+      const settings = await chrome.storage.local.get("readyFolderId");
+      return bookmark.parentId === settings.readyFolderId;
+    })).toBe(true);
+    await page.evaluate(async () => {
+      const settings = await chrome.storage.local.get("bookmarkFolderId");
+      await chrome.bookmarks.removeTree(String(settings.bookmarkFolderId));
+    });
+    const missingDestination = await saveAt("https://example.com/missing-destination");
+    expect(missingDestination.ok).toBe(false);
+    expect(missingDestination.error).toContain("no longer exists");
+    expect(await page.evaluate(async () => (await chrome.bookmarks.search({ url: "https://example.com/missing-destination" })).length)).toBe(0);
+    await page.getByRole("button", { name: "Use Ready folder", exact: true }).click();
+    await expect(page.locator(".destination-path")).toContainText("Ready");
+    expect((await saveAt("https://example.com/reset-save")).ok).toBe(true);
+    expect(await page.evaluate(async () => (await chrome.bookmarks.search({ title: "Ready" })).length)).toBe(1);
+    await destinationPage.close();
   } finally {
     await context.close();
     await rm(userDataDir, { recursive: true, force: true });

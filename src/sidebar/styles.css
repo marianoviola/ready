@@ -82,6 +82,9 @@ button { color: inherit; }
 .count { margin-left: 5px; padding: 1px 5px; border-radius: 9px; background: #e7e5fa; font-size: 10px; }
 
 .library, .panel-page { padding: 14px 14px 28px; }
+.settings-preferences { padding: 14px 14px 0; }
+.settings-preferences .settings-card { margin-bottom: 0; }
+.destination-path { font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
 .search-row { display: flex; gap: 8px; }
 .search-box {
   display: flex;

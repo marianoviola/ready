@@ -3,6 +3,7 @@ import { bookmarkTagsById } from "../domain/bookmark-tree";
 import { mergeTags } from "../domain/tags";
 import type { Article, BookmarkNode } from "../domain/types";
 import { getDomain, normalizeUrl, urlsMatch } from "../domain/url";
+import { getBookmarkDestination, resolveBookmarkDestination } from "./bookmark-destination";
 
 export async function getBookmarkTree(): Promise<BookmarkNode[]> {
   const [tree, articles] = await Promise.all([
@@ -17,7 +18,7 @@ export async function getBookmarkTree(): Promise<BookmarkNode[]> {
 }
 
 export async function linkBookmarks(bookmarkIds: string[]): Promise<number> {
-  const tagsByBookmarkId = bookmarkTagsById(await chrome.bookmarks.getTree());
+  const tagsByBookmarkId = await inheritedBookmarkTags();
   const collected = new Map<string, chrome.bookmarks.BookmarkTreeNode>();
   for (const id of bookmarkIds) {
     const nodes = await chrome.bookmarks.getSubTree(id);
@@ -73,12 +74,13 @@ export async function saveActivePage(folderId?: string): Promise<{
   const bookmark =
     matchingBookmarks[0] ??
     (await chrome.bookmarks.create({
-      parentId: folderId,
+      parentId: await resolveBookmarkDestination(folderId),
       title: tab.title || tab.url,
       url: tab.url
     }));
 
-  const article = articleFromBookmark(bookmark, tab.title);
+  const tags = (await inheritedBookmarkTags()).get(bookmark.id) ?? [];
+  const article = articleFromBookmark(bookmark, tab.title, tags);
   await db.articles.add(article);
   return { article, createdBookmark: matchingBookmarks.length === 0 };
 }
@@ -94,7 +96,7 @@ export async function restoreBookmark(
   const bookmark =
     matching[0] ??
     (await chrome.bookmarks.create({
-      parentId: folderId,
+      parentId: await resolveBookmarkDestination(folderId),
       title: article.title,
       url: article.originalUrl
     }));
@@ -103,6 +105,7 @@ export async function restoreBookmark(
     ...article,
     bookmarkId: bookmark.id,
     bookmarkState: "linked",
+    tags: mergeTags(article.tags, (await inheritedBookmarkTags()).get(bookmark.id) ?? []),
     updatedAt: Date.now()
   };
   await db.articles.put(updated);
@@ -208,6 +211,14 @@ async function findArticleForBookmark(
 ): Promise<Article | undefined> {
   const byId = await db.articles.where("bookmarkId").equals(bookmark.id).first();
   return byId ?? (bookmark.url ? findArticleByUrl(bookmark.url) : undefined);
+}
+
+async function inheritedBookmarkTags(): Promise<Map<string, string[]>> {
+  const [tree, settings] = await Promise.all([
+    chrome.bookmarks.getTree(),
+    getBookmarkDestination()
+  ]);
+  return bookmarkTagsById(tree, settings.readyFolderId);
 }
 
 function flatten(

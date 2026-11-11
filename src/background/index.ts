@@ -32,7 +32,7 @@ chrome.bookmarks.onRemoved.addListener((id) => {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!tab?.id || !info.menuItemId.toString().startsWith("ready-save")) return;
-  void saveAndActivate(tab.id, tab.url, info.selectionText);
+  void saveAndActivate(tab.id, tab.url, info.selectionText).catch(reportSaveError);
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -41,8 +41,12 @@ chrome.commands.onCommand.addListener((command) => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) await ensureReadingLayer(tab.id, tab.url);
     await notify(article.title, "Saved to Ready");
-  });
+  }).catch(reportSaveError);
 });
+
+function reportSaveError(error: unknown): void {
+  console.error("Ready could not save the page.", error);
+}
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete") {

@@ -18,6 +18,7 @@ import type {
 } from "../domain/types";
 import { BackupPanel } from "./BackupPanel";
 import { BookmarkPicker } from "./BookmarkPicker";
+import { BookmarkSettings } from "./BookmarkSettings";
 import { SourceEditor, SourcesPanel } from "./SourcesPanel";
 import { TagEditor } from "./TagEditor";
 
@@ -501,7 +502,7 @@ export function App() {
                 ? "Sources"
                 : item === "discover"
                   ? "Discover"
-                  : "Backup"}
+                  : "Settings"}
             {item === "library" && <span className="count">{articles.length}</span>}
             {item === "sources" && <span className="count">{sources.length}</span>}
           </button>
@@ -818,12 +819,15 @@ export function App() {
       )}
 
       {view === "backup" && (
-        <BackupPanel
-          articles={articles}
-          sources={sources}
-          selectedIds={selectedIds}
-          onChanged={loadData}
-        />
+        <>
+          <div className="settings-preferences"><BookmarkSettings /></div>
+          <BackupPanel
+            articles={articles}
+            sources={sources}
+            selectedIds={selectedIds}
+            onChanged={loadData}
+          />
+        </>
       )}
 
       {picker && (

@@ -33,12 +33,12 @@ export function selectableBookmarkIds(
   ) ?? [];
 }
 
-export function bookmarkTagsById(nodes: BookmarkNode[]): Map<string, string[]> {
+export function bookmarkTagsById(nodes: BookmarkNode[], excludedFolderId?: string): Map<string, string[]> {
   const tagsById = new Map<string, string[]>();
 
   function visit(node: BookmarkNode, inheritedTags: string[], depth: number) {
     const tags =
-      !node.url && depth >= 2
+      !node.url && depth >= 2 && node.id !== excludedFolderId
         ? normalizeTags([...inheritedTags, node.title])
         : inheritedTags;
 

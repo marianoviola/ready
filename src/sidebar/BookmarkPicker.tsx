@@ -33,8 +33,9 @@ export function BookmarkPicker({
       } else {
         setError(response.ok ? "Favorites could not be loaded." : response.error);
       }
-      setLoading(false);
-    });
+    }).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : "Favorites could not be loaded.");
+    }).finally(() => setLoading(false));
   }, []);
 
   const roots = useMemo(
