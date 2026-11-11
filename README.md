@@ -1,4 +1,8 @@
-# Ready
+<p align="center">
+  <img src="public/icons/ready-128.png" alt="Ready" width="96" height="96">
+</p>
+
+<h1 align="center">Ready</h1>
 
 Ready is a local-first Microsoft Edge extension that turns existing Favorites into a private reading library. Edge remains the source of truth for bookmark URLs, titles, folders, creation dates, and native synchronization. Ready stores only reading-specific data in IndexedDB.
 
