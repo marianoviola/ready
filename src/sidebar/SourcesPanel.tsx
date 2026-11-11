@@ -98,7 +98,10 @@ export function SourcesPanel({
 
       {sources.length > 0 && (
         <label className="search-box source-search">
-          <span aria-hidden="true">⌕</span>
+          <svg className="search-icon" aria-hidden="true" viewBox="0 0 24 24">
+            <circle cx="10.5" cy="10.5" r="6.5" />
+            <path d="m16 16 5 5" />
+          </svg>
           <span className="sr-only">Search sources</span>
           <input
             type="search"

@@ -527,7 +527,10 @@ export function App() {
         <main className="library">
           <div className="search-row">
             <label className="search-box">
-              <span aria-hidden="true">⌕</span>
+              <svg className="search-icon" aria-hidden="true" viewBox="0 0 24 24">
+                <circle cx="10.5" cy="10.5" r="6.5" />
+                <path d="m16 16 5 5" />
+              </svg>
               <span className="sr-only">Search articles and notes</span>
               <input
                 type="search"

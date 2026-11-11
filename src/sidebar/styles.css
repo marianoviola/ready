@@ -98,6 +98,7 @@ button { color: inherit; }
   background: white;
 }
 .search-box:focus-within { border-color: #5b5fc7; box-shadow: 0 0 0 2px rgba(91, 95, 199, .16); }
+.search-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .search-box input { width: 100%; padding: 8px 0; border: 0; outline: 0; background: transparent; color: inherit; font-size: 12px; }
 .filters {
   display: grid;
@@ -430,6 +431,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   .group-order button { color: #bdbdc6; }
   .group-order button:hover:not(:disabled) { background: #39393f; color: #d3d5ff; }
   .article-title, .empty-state h2 { color: #f3f3f5; }
+  .article-title:hover, .group-heading:hover h2, .text-button { color: #c6c3ff; }
+  .danger-text { color: #ff9aa5; }
   .progress-track { background: #45454c; }
   .card-actions select { background: #39393f; }
   .article-tags span { color: #c6c3ff; background: #3b395b; }
