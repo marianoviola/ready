@@ -3,6 +3,7 @@ export class ReadingUi {
   private readonly root: ShadowRoot;
   private toolbar?: HTMLElement;
   private resumeBanner?: HTMLElement;
+  private errorBanner?: HTMLElement;
 
   constructor() {
     this.host.dataset.readyUi = "";
@@ -40,6 +41,9 @@ export class ReadingUi {
       button:focus-visible { outline: 2px solid #5b5fc7; outline-offset: 2px; }
       .resume { top: 16px; left: 50%; transform: translateX(-50%); }
       .resume .panel { padding: 8px 10px 8px 12px; }
+      .error { top: 16px; left: 16px; right: 16px; max-width: 560px; }
+      .error .panel { flex-wrap: wrap; padding: 10px 12px; }
+      .error [role="alert"] { flex: 1 1 240px; }
       @media (prefers-color-scheme: dark) {
         .panel { color: #f5f5f5; background: #292929; border-color: #555; }
         button { color: #f5f5f5; background: #444; }
@@ -62,6 +66,7 @@ export class ReadingUi {
       <button class="primary" data-action="highlight">Highlight</button>
       <button data-action="note">Add note</button>
     </div>`;
+    toolbar.addEventListener("mousedown", (event) => event.preventDefault());
     toolbar.querySelector("[data-action='highlight']")?.addEventListener("click", onHighlight);
     toolbar.querySelector("[data-action='note']")?.addEventListener("click", onNote);
     this.root.append(toolbar);
@@ -71,6 +76,38 @@ export class ReadingUi {
   hideToolbar(): void {
     this.toolbar?.remove();
     this.toolbar = undefined;
+  }
+
+  destroy(): void {
+    this.host.remove();
+  }
+
+  showError(message: string, reloadPage = false): void {
+    this.hideToolbar();
+    this.resumeBanner?.remove();
+    this.errorBanner?.remove();
+    const banner = document.createElement("div");
+    banner.className = "ready error";
+    const panel = document.createElement("div");
+    panel.className = "panel";
+    const text = document.createElement("span");
+    text.setAttribute("role", "alert");
+    text.textContent = message;
+    panel.append(text);
+    if (reloadPage) {
+      const reload = document.createElement("button");
+      reload.className = "primary";
+      reload.textContent = "Reload page";
+      reload.addEventListener("click", () => window.location.reload());
+      panel.append(reload);
+    }
+    const dismiss = document.createElement("button");
+    dismiss.textContent = "Dismiss";
+    dismiss.addEventListener("click", () => banner.remove());
+    panel.append(dismiss);
+    banner.append(panel);
+    this.root.append(banner);
+    this.errorBanner = banner;
   }
 
   showResume(onResume: () => void): void {

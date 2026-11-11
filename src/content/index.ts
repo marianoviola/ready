@@ -1,4 +1,4 @@
-import { sendReadyMessage } from "../browser/messages";
+import { ExtensionContextInvalidatedError, requireExtensionContext, sendReadyMessage } from "../browser/messages";
 import type { Annotation, Article, ReadingPosition } from "../domain/types";
 import { AnchorResolver } from "./anchor-resolver";
 import { AnnotationRenderer } from "./annotation-renderer";
@@ -13,8 +13,18 @@ declare global {
 }
 
 if (!window.__readyReadingLayer) {
+  document.dispatchEvent(new Event("ready:dispose-reading-layer"));
   window.__readyReadingLayer = true;
-  void initialize();
+  void initialize().catch((error: unknown) => {
+    window.__readyReadingLayer = false;
+    console.error("Ready could not initialize the reading layer.", error);
+    const recoveryUi = new ReadingUi();
+    recoveryUi.showError(
+      error instanceof Error ? error.message : "Ready could not initialize the reading layer.",
+      error instanceof ExtensionContextInvalidatedError
+    );
+    document.addEventListener("ready:dispose-reading-layer", () => recoveryUi.destroy(), { once: true });
+  });
 }
 
 async function initialize(): Promise<void> {
@@ -27,6 +37,8 @@ async function initialize(): Promise<void> {
     !("annotations" in response) ||
     !response.article
   ) {
+    window.__readyReadingLayer = false;
+    if (!response.ok) throw new Error(response.error);
     return;
   }
 
@@ -36,10 +48,15 @@ async function initialize(): Promise<void> {
   let resolver: AnchorResolver;
   let renderer: AnnotationRenderer;
   let renderTimer: number | undefined;
+  let selectionTimer: number | undefined;
+  let disposed = false;
+  let savingAnnotation = false;
 
   const adapter = new DocumentAdapter(() => {
     window.clearTimeout(renderTimer);
     renderTimer = window.setTimeout(() => {
+      if (disposed) return;
+      renderer.destroy();
       resolver = new AnchorResolver(adapter.articleRoot);
       renderer = createRenderer(resolver);
       renderer.render(annotations);
@@ -56,31 +73,43 @@ async function initialize(): Promise<void> {
     article.progress,
     () => capturePosition(article, resolver),
     async (update) => {
-      await sendReadyMessage({
-        type: "SAVE_READING_UPDATE",
-        articleId: article.id,
-        ...update
-      });
+      if (disposed) return;
+      try {
+        const result = await sendReadyMessage({
+          type: "SAVE_READING_UPDATE",
+          articleId: article.id,
+          ...update
+        });
+        if (!result.ok) throw new Error(result.error);
+      } catch (error) {
+        reportError(error);
+      }
     }
   );
   tracker.start();
 
-  document.addEventListener("selectionchange", () => {
-    window.setTimeout(() => {
+  const onSelectionChange = () => {
+    window.clearTimeout(selectionTimer);
+    selectionTimer = window.setTimeout(() => {
+      if (disposed) return;
       const selection = document.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
         ui.hideToolbar();
         return;
       }
       const range = selection.getRangeAt(0);
-      if (!adapter.articleRoot.contains(range.commonAncestorContainer)) return;
+      if (!adapter.articleRoot.contains(range.commonAncestorContainer)) {
+        ui.hideToolbar();
+        return;
+      }
       ui.showSelectionToolbar(
         range.getBoundingClientRect(),
         () => void createAnnotation(range.cloneRange()),
         () => void createAnnotation(range.cloneRange(), true)
       );
     });
-  });
+  };
+  document.addEventListener("selectionchange", onSelectionChange);
 
   if (article.position && response.shouldResume) {
     ui.showResume(() => {
@@ -97,17 +126,50 @@ async function initialize(): Promise<void> {
     });
   }
 
-  chrome.runtime.onMessage.addListener((message) => {
+  const onMessage = (message: { type?: string }) => {
     if (message?.type === "READY_HIGHLIGHT_SELECTION") {
       const selection = document.getSelection();
       if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
         void createAnnotation(selection.getRangeAt(0).cloneRange());
       }
     }
-  });
+  };
+  chrome.runtime.onMessage.addListener(onMessage);
+  document.addEventListener("ready:dispose-reading-layer", dispose);
+
+  function dispose(): void {
+    if (disposed) return;
+    disposed = true;
+    window.__readyReadingLayer = false;
+    tracker.stop();
+    adapter.stop();
+    window.clearTimeout(renderTimer);
+    window.clearTimeout(selectionTimer);
+    document.removeEventListener("selectionchange", onSelectionChange);
+    document.removeEventListener("ready:dispose-reading-layer", dispose);
+    if (chrome.runtime.id) chrome.runtime.onMessage.removeListener(onMessage);
+    renderer.destroy();
+    ui.destroy();
+  }
+
+  function reportError(error: unknown): void {
+    if (disposed) return;
+    console.error("Ready reading layer failed.", error);
+    if (error instanceof ExtensionContextInvalidatedError) {
+      dispose();
+      const recoveryUi = new ReadingUi();
+      recoveryUi.showError(error.message, true);
+      document.addEventListener("ready:dispose-reading-layer", () => recoveryUi.destroy(), { once: true });
+    } else {
+      ui.showError(error instanceof Error ? error.message : "Ready could not save your reading data.");
+    }
+  }
 
   async function createAnnotation(range: Range, withNote = false): Promise<void> {
+    if (disposed || savingAnnotation) return;
+    savingAnnotation = true;
     try {
+      requireExtensionContext();
       const anchor = resolver.create(range);
       const note = withNote
         ? window.prompt("Add a private note to this highlight:") ?? undefined
@@ -119,6 +181,7 @@ async function initialize(): Promise<void> {
         anchor,
         note
       });
+      if (disposed) return;
       if (!result.ok || !("annotation" in result)) {
         throw new Error(result.ok ? "Annotation was not created." : result.error);
       }
@@ -127,7 +190,9 @@ async function initialize(): Promise<void> {
       document.getSelection()?.removeAllRanges();
       ui.hideToolbar();
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Ready could not save the highlight.");
+      reportError(error);
+    } finally {
+      savingAnnotation = false;
     }
   }
 
@@ -143,7 +208,9 @@ async function initialize(): Promise<void> {
         annotationId,
         note: annotation.note,
         unresolved: true
-      });
+      }).then((result) => {
+        if (!result.ok) throw new Error(result.error);
+      }).catch(reportError);
     });
   }
 }

@@ -10,6 +10,7 @@ export class AnnotationRenderer {
   private readonly highlightName = "ready-annotations";
   private style?: HTMLStyleElement;
   private marker?: HTMLElement;
+  private markerTimer?: number;
 
   constructor(
     private readonly resolver: AnchorResolver,
@@ -35,6 +36,7 @@ export class AnnotationRenderer {
   }
 
   showPosition(range: Range): void {
+    window.clearTimeout(this.markerTimer);
     this.marker?.remove();
     const rect = range.getBoundingClientRect();
     const marker = document.createElement("div");
@@ -53,7 +55,14 @@ export class AnnotationRenderer {
     `;
     document.documentElement.append(marker);
     this.marker = marker;
-    window.setTimeout(() => marker.remove(), 6000);
+    this.markerTimer = window.setTimeout(() => marker.remove(), 6000);
+  }
+
+  destroy(): void {
+    window.clearTimeout(this.markerTimer);
+    CSS.highlights?.delete(this.highlightName);
+    this.style?.remove();
+    this.marker?.remove();
   }
 
   private ensureStyle(): void {

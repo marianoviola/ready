@@ -58,10 +58,30 @@ export type ReadyResponse =
   | { ok: true }
   | { ok: false; error: string };
 
+export class ExtensionContextInvalidatedError extends Error {
+  constructor() {
+    super("Ready was updated or reloaded. Reload this page to use highlights and notes again. Your saved reading data is unchanged.");
+    this.name = "ExtensionContextInvalidatedError";
+  }
+}
+
+export function requireExtensionContext(): void {
+  if (!chrome.runtime.id) throw new ExtensionContextInvalidatedError();
+}
+
 export async function sendReadyMessage(
   request: ReadyRequest
 ): Promise<ReadyResponse> {
-  const response = (await chrome.runtime.sendMessage(request)) as ReadyResponse;
+  requireExtensionContext();
+  let response: ReadyResponse | undefined;
+  try {
+    response = await chrome.runtime.sendMessage(request) as ReadyResponse | undefined;
+  } catch (error) {
+    if (!chrome.runtime.id || (error instanceof Error && error.message.includes("Extension context invalidated"))) {
+      throw new ExtensionContextInvalidatedError();
+    }
+    throw error;
+  }
   if (!response) {
     throw new Error("Ready did not receive a response from the extension.");
   }

@@ -84,6 +84,13 @@ then select **Reload** in `edge://extensions`. Do not uninstall just to update:
 uninstalling removes Ready's local reading data. Favorites and exported backups
 are separate and remain under your control.
 
+Reload any article tabs that were already open after updating or reloading the
+extension. Their previous reading layer can no longer communicate with Ready.
+If you try to annotate from one of those tabs, Ready displays a **Reload page**
+notice instead of retrying against the disconnected extension. Existing saved
+highlights and notes remain in your library; retry the unsaved annotation after
+the page reloads.
+
 ## Distribution and release
 
 Packaging requires the `zip` command; distribution tests also require `unzip`
