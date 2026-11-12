@@ -178,6 +178,9 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await sourceDialog.getByLabel(/Name/).fill("Example Weekly");
     await sourceDialog.getByLabel(/Note/).fill("Browse every Friday");
     await sourceDialog.getByLabel("I have a subscription").check();
+    await expect(sourceDialog.getByLabel("Selected tags").getByRole("button")).toHaveCount(0);
+    await sourceDialog.getByRole("button", { name: "Manual", exact: true }).click();
+    await sourceDialog.getByLabel("Find or create tag").fill("Publications");
     await sourceDialog.getByRole("button", { name: "Add source" }).click();
 
     await expect(page.getByRole("status")).toContainText("Source added");
@@ -185,7 +188,8 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await expect(page.getByRole("status")).toHaveCount(0);
     await firstArticleCard.getByRole("button", { name: "View source" }).click();
     await expect(page.getByRole("heading", { name: "Example Weekly" })).toBeVisible();
-    await expect(page.getByText("Subscribed", { exact: true })).toBeVisible();
+    await expect(page.locator(".subscription-badge")).toHaveText("Subscribed");
+    await expect(page.locator(".source-card .article-tags")).toHaveText("ManualPublications");
     await expect(page.getByText("2 saved articles")).toBeVisible();
     const sourceIcon = page.locator(".source-icon img").first();
     await expect(sourceIcon).toHaveAttribute("src", /\/_favicon\/\?pageUrl=/);
@@ -201,6 +205,81 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await manualSourceDialog.getByRole("button", { name: "Add source" }).click();
     await expect(page.getByRole("heading", { name: "Manual source" })).toBeVisible();
 
+    await page.getByLabel("Search sources").fill("publications");
+    await expect(page.locator(".source-card")).toHaveCount(1);
+    await page.getByLabel("Subscription", { exact: true }).selectOption("not-subscribed");
+    await expect(page.getByRole("heading", { name: "No sources match" })).toBeVisible();
+    await page.getByLabel("Search sources").fill("");
+    await expect(page.locator(".source-card")).toHaveCount(1);
+    await page.getByLabel("Subscription", { exact: true }).selectOption("all");
+    await page.getByLabel("Source tag").selectOption("Manual");
+    await expect(page.locator(".source-card")).toHaveCount(1);
+    await page.getByLabel("Source tag").selectOption("");
+    await page.getByLabel("Sort by").selectOption("name");
+    await expect(page.locator(".source-card h3")).toHaveText(["Example Weekly", "Manual source"]);
+    await page.getByLabel("Sort by").selectOption("articles");
+    await expect(page.locator(".source-card h3")).toHaveText(["Example Weekly", "Manual source"]);
+    await page.getByLabel("Group by").selectOption("tag");
+    await expect(page.locator(".group-heading h2")).toHaveText(["Manual", "Publications", "Untagged"]);
+    await expect(page.locator(".source-card")).toHaveCount(3);
+    await page.getByRole("button", { name: "Untagged 1", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Manual source" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Untagged 1", exact: true }).click();
+    await page.getByRole("button", { name: "Kanban", exact: true }).click();
+    const sourceColumns = await page.locator(".article-group").evaluateAll((groups) => groups.map((group) => {
+      const { x, y } = group.getBoundingClientRect();
+      return { x, y };
+    }));
+    expect(new Set(sourceColumns.map(({ y }) => y)).size).toBe(1);
+    expect(sourceColumns[1].x).toBeGreaterThan(sourceColumns[0].x);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.getByRole("button", { name: "Move Publications earlier", exact: true }).click();
+    await expect(page.locator(".group-heading h2")).toHaveText(["Publications", "Manual", "Untagged"]);
+    await page.getByRole("button", { name: "List", exact: true }).click();
+    await page.getByLabel("Group by").selectOption("subscription");
+    await expect(page.locator(".group-heading h2")).toHaveText(["Not subscribed", "Subscribed"]);
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      const sourceStyles = await page.locator(".source-card .article-tags span").first().evaluate((chip) => {
+        const style = getComputedStyle(chip);
+        return { color: style.color, background: style.backgroundColor };
+      });
+      expect(sourceStyles).toEqual(scheme === "dark"
+        ? { color: "rgb(198, 195, 255)", background: "rgb(59, 57, 91)" }
+        : { color: "rgb(81, 77, 159)", background: "rgb(238, 237, 251)" });
+      const clippedOptions = await page.locator(".organize-row select, .source-filters select").evaluateAll((selects) =>
+        selects.flatMap((element) => {
+          const select = element as HTMLSelectElement;
+          const style = getComputedStyle(select);
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d")!;
+          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          const available = select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+          return [...select.options].filter((option) => context.measureText(option.text).width > available)
+            .map((option) => option.text);
+        }));
+      expect(clippedOptions).toEqual([]);
+    }
+    await page.getByLabel("Group by").selectOption("none");
+    await page.locator(".source-card").filter({ hasText: "Manual source" }).getByRole("button", { name: "Edit", exact: true }).click();
+    const editSourceDialog = page.getByRole("dialog", { name: "Edit source" });
+    await editSourceDialog.getByRole("button", { name: "Publications", exact: true }).click();
+    await editSourceDialog.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.locator(".source-card").filter({ hasText: "Manual source" }).locator(".article-tags")).toHaveText("Publications");
+    await page.reload();
+    await page.getByRole("button", { name: /^Sources/ }).click();
+    await page.getByLabel("Group by").selectOption("tag");
+    await expect(page.locator(".group-heading h2")).toHaveText(["Publications", "Manual"]);
+    await page.getByLabel("Group by").selectOption("none");
+    await page.getByRole("button", { name: "Tags", exact: true }).click();
+    const sourceOnlyTag = page.locator(".tag-directory-item").filter({ hasText: "Publications" });
+    await expect(sourceOnlyTag.getByRole("button", { name: "View articles tagged Publications", exact: true })).toBeDisabled();
+    await expect(sourceOnlyTag).toContainText("2 sources");
+    await sourceOnlyTag.getByRole("button", { name: "View sources tagged Publications", exact: true }).click();
+    await expect(page.getByLabel("Source tag")).toHaveValue("Publications");
+    await expect(page.locator(".source-card")).toHaveCount(2);
+    await page.getByLabel("Source tag").selectOption("");
+
     const importedSourceCard = page.locator(".source-card").filter({
       has: page.getByRole("heading", { name: "Example Weekly" })
     });
@@ -215,7 +294,7 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await page.getByRole("button", { name: "Close", exact: true }).click();
 
     await page.getByRole("button", { name: "Tags", exact: true }).click();
-    await expect(page.locator(".tag-directory-item")).toHaveCount(3);
+    await expect(page.locator(".tag-directory-item")).toHaveCount(4);
     await expect(page.locator(".tag-directory-item").filter({ hasText: "Ready E2E" })).toContainText("2 articles");
     for (const colorScheme of ["dark", "light"] as const) {
       await page.emulateMedia({ colorScheme });
@@ -234,7 +313,7 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await page.getByLabel("Search tags").fill("Manual");
     await expect(page.getByLabel("Search tags")).toHaveCSS("outline-style", "none");
     await expect(page.locator(".tag-directory-item")).toHaveCount(1);
-    await page.locator(".tag-directory-item").click();
+    await page.getByRole("button", { name: "View articles tagged Manual", exact: true }).click();
     await expect(page.locator(".article-card")).toHaveCount(1);
     await expect(page.getByLabel("Tag", { exact: true })).toHaveValue("Manual");
     await page.getByLabel("Select all visible articles").check();
@@ -330,7 +409,9 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await page.reload();
     await expect(page.getByText("Your library is ready")).toBeVisible();
     await page.getByRole("button", { name: "Tags", exact: true }).click();
-    await expect(page.getByText("No tags yet", { exact: true })).toBeVisible();
+    await expect(page.locator(".tag-directory-item")).toHaveCount(2);
+    await expect(page.getByRole("button", { name: "View articles tagged Manual", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "View sources tagged Manual", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: /^Library/ }).click();
     await page.getByRole("button", { name: "Link", exact: true }).click();
     await page.getByRole("checkbox", { name: "Select Ready E2E" }).check();

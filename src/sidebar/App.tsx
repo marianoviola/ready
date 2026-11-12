@@ -53,6 +53,7 @@ export function App() {
   const [tagEditor, setTagEditor] = useState<{ ids: string[]; initial: string[]; additive: boolean }>();
   const [bulkBusy, setBulkBusy] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
+  const [sourceTagFilter, setSourceTagFilter] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -173,6 +174,9 @@ export function App() {
       ),
     [articles]
   );
+  const allTags = useMemo(() => normalizeTags([
+    ...tags, ...sources.flatMap((source) => source.tags ?? [])
+  ]).sort((left, right) => left.localeCompare(right)), [tags, sources]);
 
   useEffect(() => {
     setTagFilter((current) =>
@@ -492,7 +496,10 @@ export function App() {
             key={item}
             className={view === item ? "tab active" : "tab"}
             aria-current={view === item ? "page" : undefined}
-            onClick={() => setView(item)}
+            onClick={() => {
+              if (item === "sources" && view !== "sources") setSourceTagFilter("");
+              setView(item);
+            }}
           >
             {item === "library"
               ? "Library"
@@ -722,6 +729,7 @@ export function App() {
                       sourceSaved={sources.some((source) => source.domain === article.domain)}
                       onSource={() => {
                         if (sources.some((source) => source.domain === article.domain)) {
+                          setSourceTagFilter("");
                           setView("sources");
                         } else {
                           setSourceArticle(article);
@@ -778,28 +786,40 @@ export function App() {
           <div className="section-heading">
             <p className="eyebrow">Your library</p>
             <h2>Tags</h2>
-            <p className="muted">Browse all tags. Add or create tags from an article or a selection.</p>
+            <p className="muted">Browse tags across articles and sources. Tag assignments stay independent.</p>
           </div>
           <label className="search-box">
             <span className="sr-only">Search tags</span>
             <input type="search" placeholder="Search tags" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} />
           </label>
-          {tags.length === 0 ? <EmptyState title="No tags yet" detail="Use Add tags on an article to create your first tag." /> : (
+          {allTags.length === 0 ? <EmptyState title="No tags yet" detail="Add tags to an article or edit a source to create your first tag." /> : (
             <div className="tag-directory">
-              {tags.filter((tag) => tag.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase())).map((tag) => (
-                <button className="tag-directory-item" key={tag} onClick={() => {
-                  setSearch("");
-                  setStatusFilter("all");
-                  setDomainFilter("all");
-                  setOrphanedOnly(false);
-                  setTagFilter(tag);
-                  setView("library");
-                }}>
-                  <span>{tag}</span>
-                  <span className="count">{articles.filter((article) => article.tags?.some((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase())).length} articles</span>
-                </button>
-              ))}
-              {!tags.some((tag) => tag.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase())) && <EmptyState title="No tags match" detail="Try a different search." />}
+              {allTags.filter((tag) => tag.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase())).map((tag) => {
+                const articleCount = articles.filter((article) => article.tags?.some((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase())).length;
+                const sourceCount = sources.filter((source) => source.tags?.some((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase())).length;
+                return (
+                  <div className="tag-directory-item" key={tag}>
+                    <span>{tag}</span>
+                    <div className="tag-directory-counts">
+                      <button className="count" disabled={articleCount === 0} aria-label={`View articles tagged ${tag}`} onClick={() => {
+                        setSearch("");
+                        setStatusFilter("all");
+                        setDomainFilter("all");
+                        setOrphanedOnly(false);
+                        setTagFilter(tags.find((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase()) ?? "");
+                        setView("library");
+                      }}>
+                        {articleCount} {articleCount === 1 ? "article" : "articles"}
+                      </button>
+                      <button className="count" disabled={sourceCount === 0} aria-label={`View sources tagged ${tag}`} onClick={() => {
+                        setSourceTagFilter(tag);
+                        setView("sources");
+                      }}>{sourceCount} {sourceCount === 1 ? "source" : "sources"}</button>
+                    </div>
+                  </div>
+                );
+              })}
+              {!allTags.some((tag) => tag.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase())) && <EmptyState title="No tags match" detail="Try a different search." />}
             </div>
           )}
         </main>
@@ -807,8 +827,11 @@ export function App() {
 
       {view === "sources" && (
         <SourcesPanel
+          key={sourceTagFilter}
           sources={sources}
           articles={articles}
+          availableTags={allTags}
+          initialTag={sourceTagFilter}
           onChanged={loadData}
           onViewArticles={(domain) => {
             setSearch("");
@@ -865,10 +888,12 @@ export function App() {
           }}
           onClose={() => setSourceArticle(undefined)}
           onSave={saveSourceFromArticle}
+          availableTags={allTags}
+          suggestedTags={sourceArticle.tags}
         />
       )}
       {tagEditor && (
-        <TagEditor initial={tagEditor.initial} available={tags} additive={tagEditor.additive} onClose={() => setTagEditor(undefined)} onSave={saveTags} />
+        <TagEditor initial={tagEditor.initial} available={allTags} additive={tagEditor.additive} onClose={() => setTagEditor(undefined)} onSave={saveTags} />
       )}
     </div>
   );

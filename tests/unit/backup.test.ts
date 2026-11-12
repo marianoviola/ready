@@ -103,4 +103,22 @@ describe("backup and import", () => {
     expect(merged.id).toBe("source-id");
     expect(merged.name).toBe("Updated Example");
   });
+
+  it("round-trips source tags and rejects malformed tag fields", () => {
+    const tagged = { ...source, tags: ["Tech", "Weekly"] };
+    const backup = createBackup([], [], [], [tagged]);
+    expect(previewImport(JSON.parse(JSON.stringify(backup)), []).backup?.sources[0].tags).toEqual(tagged.tags);
+    for (const tags of ["Tech", [42], null]) {
+      expect(previewImport({ ...backup, sources: [{ ...source, tags }] }, []).errors).toContain("Source 1 has invalid tags.");
+    }
+    expect(previewImport(createBackup([], [], [], [source]), []).valid).toBe(true);
+  });
+
+  it("preserves local tags when importing a newer legacy source without tags", () => {
+    const tagged = { ...source, tags: ["Tech"] };
+    expect(mergeImportedSource({ ...source, updatedAt: 500 }, tagged).tags).toEqual(["Tech"]);
+    expect(mergeImportedSource({ ...source, updatedAt: 500, tags: [] }, tagged).tags).toEqual([]);
+    expect(mergeImportedSource({ ...source, tags: [" Tech ", "tech"] }).tags).toEqual(["Tech"]);
+    expect(mergeImportedSource({ ...source, updatedAt: 100, tags: ["Old"] }, tagged).tags).toEqual(["Tech"]);
+  });
 });

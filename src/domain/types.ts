@@ -42,6 +42,7 @@ export interface Source {
   normalizedUrl: string;
   domain: string;
   subscribed: boolean;
+  tags?: string[];
   note?: string;
   createdAt: number;
   updatedAt: number;

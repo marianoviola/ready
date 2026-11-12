@@ -25,9 +25,12 @@ Edge Add-ons approval are separate steps; this repository does not imply a store
 - Search local article metadata and notes.
 - Filter by reading status, website, tag, and orphan state; sort by recent activity or saved date; group by status, website, date, or tag with collapsible sections in List or horizontally scrolling Kanban layout.
 - Inherit tags from Favorite folders when linking, then edit them in an integrated editor with reusable existing tags and new tag creation.
-- Browse all used tags and article counts in the **Tags** tab; select a tag to open its articles.
+- Browse all used tags in the **Tags** tab, with separate article and source counts that open the corresponding filtered view.
 - Select visible articles for bulk tag addition, reading-status changes, or removal, with separate confirmation before deleting linked Edge Favorites.
 - Keep a separate directory of websites to browse manually, with private notes and subscription status.
+- Tag sources during creation or editing, reusing tags from Library or creating new ones. Source and article tags share suggestions but remain independent; creating a source from an article suggests its tags without copying them automatically.
+- Search source names, domains, notes, and tags; filter by tag or subscription; group by tag or subscription in List or Kanban, with collapsible groups and separately saved group order. Sources with multiple tags appear in each tag group; untagged sources have their own group.
+- Sort sources by name, added date, updated date, or saved article count. The default remains subscribed first, then alphabetical. Updated date reflects source edits, not site visits.
 - Show deterministic, on-device forgotten, unfinished, and related recommendations.
 - Export selected or all reading data to a versioned, browser-independent JSON file.
 - Preview, reconcile, and non-destructively merge JSON imports.

@@ -2,8 +2,16 @@ import { describe, expect, it } from "vitest";
 import { bookmarkTagsById } from "../../src/domain/bookmark-tree";
 import { mergeTags, normalizeTags } from "../../src/domain/tags";
 import type { BookmarkNode } from "../../src/domain/types";
+import { tagsWithQuery } from "../../src/sidebar/TagPicker";
 
 describe("tags", () => {
+  it("saves pending tag input with shared spelling without duplicates", () => {
+    expect(tagsWithQuery(["Personal"], ["Research"], " research ")).toEqual(["Personal", "Research"]);
+    expect(tagsWithQuery(["Research"], ["Research"], "research")).toEqual(["Research"]);
+    expect(tagsWithQuery([], [], " New tag ")).toEqual(["New tag"]);
+    expect(tagsWithQuery(["Research"], [], " ")).toEqual(["Research"]);
+  });
+
   it("normalizes and merges tags without replacing manual values", () => {
     expect(normalizeTags([" Research ", "", "research", "TypeScript"])).toEqual([
       "Research",

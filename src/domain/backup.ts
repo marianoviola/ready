@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import { getDomain, normalizeUrl } from "./url";
 import { isReadingStatus } from "./status";
+import { normalizeTags } from "./tags";
 
 export function createBackup(
   articles: Article[],
@@ -101,11 +102,12 @@ export function mergeImportedSource(
   incoming: Source,
   local?: Source
 ): Source {
-  if (!local) return incoming;
+  if (!local) return { ...incoming, tags: normalizeTags(incoming.tags ?? []) };
   const newer = incoming.updatedAt > local.updatedAt ? incoming : local;
   return {
     ...local,
     ...newer,
+    tags: normalizeTags(newer.tags ?? local.tags ?? []),
     id: local.id,
     createdAt: Math.min(local.createdAt, incoming.createdAt),
     updatedAt: Math.max(local.updatedAt, incoming.updatedAt)
@@ -220,6 +222,10 @@ function validateBackup(value: unknown): string[] {
       }
     } catch {
       errors.push(`Source ${index + 1} has an invalid URL.`);
+    }
+    if (source.tags !== undefined &&
+      (!Array.isArray(source.tags) || source.tags.some((tag) => typeof tag !== "string"))) {
+      errors.push(`Source ${index + 1} has invalid tags.`);
     }
   }
   return errors;

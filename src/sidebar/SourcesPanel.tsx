@@ -1,25 +1,80 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { db } from "../db/database";
-import { sourceFromInput } from "../domain/source";
+import { groupSources, selectSources, sourceFromInput, type SourceGrouping, type SourceSort, type SubscriptionFilter } from "../domain/source";
+import { moveGroup, reconcileGroupOrder } from "../domain/group-order";
+import { normalizeTags } from "../domain/tags";
 import type { Article, Source } from "../domain/types";
+import { TagPicker, tagsWithQuery } from "./TagPicker";
 
 interface SourcesPanelProps {
   sources: Source[];
   articles: Article[];
   onChanged: () => Promise<void>;
   onViewArticles: (domain: string) => void;
+  availableTags: string[];
+  initialTag: string;
 }
 
 export function SourcesPanel({
   sources,
   articles,
   onChanged,
-  onViewArticles
+  onViewArticles,
+  availableTags,
+  initialTag
 }: SourcesPanelProps) {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Source | null>();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [tagFilter, setTagFilter] = useState(initialTag);
+  const [subscription, setSubscription] = useState<SubscriptionFilter>("all");
+  const [sort, setSort] = useState<SourceSort>("default");
+  const [grouping, setGrouping] = useState<SourceGrouping>("none");
+  const [layout, setLayout] = useState<"list" | "kanban">("list");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [orders, setOrders] = useState<Record<SourceGrouping, string[]>>({ none: [], tag: [], subscription: [] });
+  const [orderLoaded, setOrderLoaded] = useState(false);
+  const [orderBusy, setOrderBusy] = useState(false);
+  const tags = useMemo(() => normalizeTags(sources.flatMap((source) => source.tags ?? []))
+    .sort((left, right) => left.localeCompare(right)), [sources]);
+
+  useEffect(() => {
+    if (!message) return;
+    const timeout = window.setTimeout(() => setMessage(""), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
+
+  useEffect(() => {
+    setTagFilter((current) => tags.find((tag) =>
+      tag.toLocaleLowerCase() === current.toLocaleLowerCase()) ?? "");
+  }, [tags]);
+
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
+    let disposed = false;
+    void chrome.storage.local.get("sourceGroupOrders").then((stored) => {
+      const value: unknown = stored.sourceGroupOrders;
+      if (value !== undefined) {
+        if (!value || typeof value !== "object") throw new Error("Saved source group order is invalid.");
+        const next: Record<SourceGrouping, string[]> = { none: [], tag: [], subscription: [] };
+        for (const key of Object.keys(next) as SourceGrouping[]) {
+          const order: unknown = Reflect.get(value, key);
+          if (order !== undefined) {
+            if (!Array.isArray(order) || !order.every((item: unknown) => typeof item === "string")) {
+              throw new Error("Saved source group order is invalid.");
+            }
+            next[key] = order;
+          }
+        }
+        if (!disposed) setOrders(next);
+      }
+      if (!disposed) setOrderLoaded(true);
+    }).catch((reason: unknown) => {
+      if (!disposed) setError(reason instanceof Error ? reason.message : "Source group order could not be loaded.");
+    });
+    return () => { disposed = true; };
+  }, []);
 
   const articleCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -29,22 +84,27 @@ export function SourcesPanel({
     return counts;
   }, [articles]);
 
-  const filtered = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return [...sources]
-      .filter(
-        (source) =>
-          !normalizedQuery ||
-          source.name.toLowerCase().includes(normalizedQuery) ||
-          source.domain.toLowerCase().includes(normalizedQuery) ||
-          source.note?.toLowerCase().includes(normalizedQuery)
-      )
-      .sort(
-        (left, right) =>
-          Number(right.subscribed) - Number(left.subscribed) ||
-          left.name.localeCompare(right.name)
-      );
-  }, [query, sources]);
+  const filtered = useMemo(() => selectSources(sources, query, tagFilter, subscription, sort, articleCounts),
+    [sources, query, tagFilter, subscription, sort, articleCounts]);
+  const groups = useMemo(() => {
+    const grouped = groupSources(filtered, grouping);
+    return reconcileGroupOrder(orders[grouping], grouped.map((group) => group.key))
+      .flatMap((key) => grouped.filter((group) => group.key === key));
+  }, [filtered, grouping, orders]);
+
+  async function reorderGroup(key: string, direction: -1 | 1) {
+    setOrderBusy(true);
+    setError("");
+    try {
+      const next = { ...orders, [grouping]: moveGroup(orders[grouping], groups.map((group) => group.key), key, direction) };
+      await chrome.storage.local.set({ sourceGroupOrders: next });
+      setOrders(next);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Source group order could not be saved.");
+    } finally {
+      setOrderBusy(false);
+    }
+  }
 
   async function saveSource(source: Source) {
     setError("");
@@ -63,10 +123,14 @@ export function SourcesPanel({
 
   async function removeSource(source: Source) {
     if (!window.confirm(`Remove “${source.name}” from Sources?`)) return;
-    await db.sources.delete(source.id);
-    setMessage("Source removed.");
     setError("");
-    await onChanged();
+    try {
+      await db.sources.delete(source.id);
+      setMessage("Source removed.");
+      await onChanged();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The source could not be removed.");
+    }
   }
 
   async function openSource(source: Source) {
@@ -96,7 +160,7 @@ export function SourcesPanel({
       {error && <p className="feedback error" role="alert">{error}</p>}
       {message && <p className="feedback success" role="status">{message}</p>}
 
-      {sources.length > 0 && (
+      {sources.length > 0 && (<>
         <label className="search-box source-search">
           <svg className="search-icon" aria-hidden="true" viewBox="0 0 24 24">
             <circle cx="10.5" cy="10.5" r="6.5" />
@@ -110,7 +174,55 @@ export function SourcesPanel({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-      )}
+        <div className="source-filters" role="group" aria-label="Filter sources">
+          <label className="select-field">
+            <select aria-label="Source tag" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
+              <option value="">All tags</option>
+              {tags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+            </select>
+          </label>
+          <label className="select-field">
+            <select aria-label="Subscription" value={subscription} onChange={(event) => setSubscription(event.target.value as SubscriptionFilter)}>
+              <option value="all">All subscriptions</option>
+              <option value="subscribed">Subscribed</option>
+              <option value="not-subscribed">Not subscribed</option>
+            </select>
+          </label>
+        </div>
+        <div className="organize-row" aria-label="Organize sources">
+          <div className="organize-control">
+            <span>Group</span>
+            <label className="select-field compact-select-field">
+              <select aria-label="Group by" value={grouping} onChange={(event) => {
+                setGrouping(event.target.value as SourceGrouping);
+                setCollapsed(new Set());
+              }}>
+                <option value="none">None</option>
+                <option value="tag">Tag</option>
+                <option value="subscription">Subscription</option>
+              </select>
+            </label>
+          </div>
+          <div className="organize-control">
+            <span>Sort</span>
+            <label className="select-field compact-select-field">
+              <select aria-label="Sort by" value={sort} onChange={(event) => setSort(event.target.value as SourceSort)}>
+                <option value="default">Subscribed</option>
+                <option value="name">Name A–Z</option>
+                <option value="added">Date added</option>
+                <option value="updated">Updated</option>
+                <option value="articles">Articles</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        {grouping !== "none" && <div className="library-tools source-tools">
+          <div className="layout-toggle" role="group" aria-label="Group layout">
+            <button type="button" aria-pressed={layout === "list"} onClick={() => setLayout("list")}>List</button>
+            <button type="button" aria-pressed={layout === "kanban"} onClick={() => setLayout("kanban")}>Kanban</button>
+          </div>
+        </div>}
+      </>)}
 
       {filtered.length === 0 ? (
         <div className="empty-state source-empty">
@@ -119,12 +231,38 @@ export function SourcesPanel({
           <p>
             {sources.length === 0
               ? "Save a site you want to visit independently from individual articles."
-              : "Try changing your search."}
+              : "Try changing your filters or search."}
           </p>
         </div>
       ) : (
-        <div className="source-list">
-          {filtered.map((source) => {
+        <div className={`article-groups ${grouping === "none" ? "list" : layout}`}
+          role="region" aria-label="Source groups" tabIndex={grouping !== "none" && layout === "kanban" ? 0 : undefined}>
+          {groups.map((group, index) => (
+            <section className="article-group" key={group.key}>
+              {grouping !== "none" && <div className="group-header">
+                <button className="group-heading" type="button" aria-expanded={!collapsed.has(group.key)} onClick={() => {
+                  setCollapsed((current) => {
+                    const next = new Set(current);
+                    if (next.has(group.key)) next.delete(group.key); else next.add(group.key);
+                    return next;
+                  });
+                }}>
+                  <svg className="group-chevron" aria-hidden="true" viewBox="0 0 16 16"><path d={collapsed.has(group.key) ? "m6 3 5 5-5 5" : "m3 6 5 5 5-5"} /></svg>
+                  <h2>{group.label}</h2><span>{group.sources.length}</span>
+                </button>
+                <div className="group-order" role="group" aria-label={`Order ${group.label}`}>
+                  {([-1, 1] as const).map((direction) => <button key={direction} type="button"
+                    aria-label={`Move ${group.label} ${direction === -1 ? "earlier" : "later"}`}
+                    disabled={!orderLoaded || orderBusy || (direction === -1 ? index === 0 : index === groups.length - 1)}
+                    onClick={() => void reorderGroup(group.key, direction)}>
+                    <svg aria-hidden="true" viewBox="0 0 16 16" className={layout === "kanban" ? "horizontal-arrow" : undefined}>
+                      <path d={direction === -1 ? "m4 9 4-4 4 4" : "m4 7 4 4 4-4"} />
+                    </svg>
+                  </button>)}
+                </div>
+              </div>}
+              {!collapsed.has(group.key) && <div className="source-list">
+          {group.sources.map((source) => {
             const articleCount = articleCounts.get(source.domain) ?? 0;
             return (
               <article className="source-card" key={source.id}>
@@ -139,6 +277,9 @@ export function SourcesPanel({
                   )}
                 </div>
                 {source.note && <p className="source-note">{source.note}</p>}
+                {!!source.tags?.length && <div className="article-tags" aria-label="Tags">
+                  {source.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                </div>}
                 <div className="source-meta">
                   {articleCount} saved {articleCount === 1 ? "article" : "articles"}
                 </div>
@@ -169,6 +310,9 @@ export function SourcesPanel({
               </article>
             );
           })}
+              </div>}
+            </section>
+          ))}
         </div>
       )}
 
@@ -177,6 +321,7 @@ export function SourcesPanel({
           source={editing}
           onClose={() => setEditing(undefined)}
           onSave={saveSource}
+          availableTags={availableTags}
         />
       )}
     </main>
@@ -212,15 +357,20 @@ interface SourceEditorProps {
   };
   onClose: () => void;
   onSave: (source: Source) => Promise<void>;
+  availableTags: string[];
+  suggestedTags?: string[];
 }
 
-export function SourceEditor({ source, initial, onClose, onSave }: SourceEditorProps) {
+export function SourceEditor({ source, initial, onClose, onSave, availableTags, suggestedTags = [] }: SourceEditorProps) {
   const [name, setName] = useState(source?.name ?? initial?.name ?? "");
   const [url, setUrl] = useState(source?.url ?? initial?.url ?? "");
   const [note, setNote] = useState(source?.note ?? "");
   const [subscribed, setSubscribed] = useState(source?.subscribed ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [tags, setTags] = useState(source?.tags ?? []);
+  const [tagQuery, setTagQuery] = useState("");
+  const suggestions = normalizeTags([...suggestedTags, ...availableTags]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -228,7 +378,7 @@ export function SourceEditor({ source, initial, onClose, onSave }: SourceEditorP
     setError("");
     try {
       await onSave(
-        sourceFromInput({ name, url, note, subscribed }, source ?? undefined)
+        sourceFromInput({ name, url, note, subscribed, tags: tagsWithQuery(tags, suggestions, tagQuery) }, source ?? undefined)
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The source could not be saved.");
@@ -295,6 +445,11 @@ export function SourceEditor({ source, initial, onClose, onSave }: SourceEditorP
             />
             I have a subscription
           </label>
+          <fieldset className="source-tag-fields" disabled={saving}>
+            <legend>Tags</legend>
+            <p className="muted">{suggestedTags.length ? "Article tags are suggested below, not added automatically." : "Choose existing tags or create a new one."}</p>
+            <TagPicker selected={tags} available={suggestions} query={tagQuery} onQuery={setTagQuery} onChange={setTags} disabled={saving} />
+          </fieldset>
         </div>
         {error && <p className="error" role="alert">{error}</p>}
         <div className="modal-actions">

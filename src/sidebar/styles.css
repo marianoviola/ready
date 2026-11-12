@@ -247,9 +247,17 @@ select {
 .bulk-toolbar strong { margin-right: auto; }
 .bulk-toolbar .select-field { flex: 1; min-width: 120px; }
 .tag-directory { display: grid; gap: 7px; margin-top: 12px; }
-.tag-directory-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border: 1px solid #e2e2e6; border-radius: 9px; background: white; text-align: left; cursor: pointer; font-size: 12px; }
+.tag-directory-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border: 1px solid #e2e2e6; border-radius: 9px; background: white; text-align: left; font-size: 12px; }
 .tag-directory-item > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .tag-directory-item .count { flex: none; }
+.tag-directory-counts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.tag-directory-counts button { border: 0; cursor: pointer; }
+.tag-directory-counts button:disabled { cursor: default; opacity: .6; }
+.source-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 7px; }
+.source-tools { justify-content: flex-end; }
+.source-tag-fields { min-width: 0; padding: 0; border: 0; margin: 0; }
+.source-tag-fields legend { color: inherit; font-size: 11px; font-weight: 700; }
+.source-fields .search-box { display: flex; }
 .tag-editor { width: min(440px, calc(100vw - 24px)); max-height: 85vh; padding: 16px; overflow-y: auto; border: 1px solid #d8d8dd; border-radius: 14px; background: #f8f8f9; color: inherit; }
 .tag-editor::backdrop { background: rgba(20, 20, 28, .42); }
 .tag-choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
