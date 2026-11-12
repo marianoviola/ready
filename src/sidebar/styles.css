@@ -254,6 +254,7 @@ select {
 .tag-directory-counts button { border: 0; cursor: pointer; }
 .tag-directory-counts button:disabled { cursor: default; opacity: .6; }
 .source-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 7px; }
+.source-organize { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
 .source-tools { justify-content: flex-end; }
 .source-tag-fields { min-width: 0; padding: 0; border: 0; margin: 0; }
 .source-tag-fields legend { color: inherit; font-size: 11px; font-weight: 700; }

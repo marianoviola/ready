@@ -189,7 +189,7 @@ export function SourcesPanel({
             </select>
           </label>
         </div>
-        <div className="organize-row" aria-label="Organize sources">
+        <div className="organize-row source-organize" aria-label="Organize sources">
           <div className="organize-control">
             <span>Group</span>
             <label className="select-field compact-select-field">

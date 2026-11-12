@@ -253,9 +253,11 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
           const style = getComputedStyle(select);
           const canvas = document.createElement("canvas");
           const context = canvas.getContext("2d")!;
-          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
           const available = select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-          return [...select.options].filter((option) => context.measureText(option.text).width > available)
+          return [...select.options].filter((option) => [style.fontFamily, "Arial, sans-serif"].some((family) => {
+            context.font = `${style.fontWeight} ${style.fontSize} ${family}`;
+            return context.measureText(option.text).width > available;
+          }))
             .map((option) => option.text);
         }));
       expect(clippedOptions).toEqual([]);
