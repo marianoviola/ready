@@ -4,6 +4,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+function installClassicScrollbars() {
+  document.addEventListener("DOMContentLoaded", () => {
+    const style = document.createElement("style");
+    style.textContent = "html { overflow-y: scroll; } html::-webkit-scrollbar { width: 15px; height: 15px; }";
+    document.head.append(style);
+  });
+}
+
 test("links Favorites and manages tags, layouts, bulk actions, and sources", async () => {
   test.setTimeout(60_000);
   const extensionPath = path.resolve("dist");
@@ -17,6 +25,7 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
   });
 
   try {
+    await context.addInitScript(installClassicScrollbars);
     const page = await context.newPage();
     const extensionId = unpackedExtensionId(extensionPath);
     await page.goto(`chrome-extension://${extensionId}/sidebar.html`);
@@ -412,6 +421,7 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     expect(new Set(columns.map(({ y }) => y)).size).toBe(1);
     expect(columns[1].x).toBeGreaterThan(columns[0].x);
     expect(await page.locator(".article-groups").evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.clientWidth)).toBe(305);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     const headingAlignment = await page.locator(".group-heading").first().evaluate((element) => {
       const icon = element.querySelector("svg")!.getBoundingClientRect();
@@ -547,6 +557,7 @@ test("moves Favorites, discovers local sources, and preserves statistics through
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`]
   });
   try {
+    await context.addInitScript(installClassicScrollbars);
     const page = await context.newPage();
     await page.setViewportSize({ width: 320, height: 800 });
     await page.goto(`chrome-extension://${unpackedExtensionId(extensionPath)}/sidebar.html`);
@@ -636,6 +647,7 @@ test("moves Favorites, discovers local sources, and preserves statistics through
     await expect(page.getByText("Recorded reads: 2 (1 archived)", { exact: true })).toBeVisible();
     await page.getByText("Archived articles (1)", { exact: true }).click();
     await expect(page.getByText(`Historical Favorite reference: ${favorites.second.id}`, { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.clientWidth)).toBe(305);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
     await page.getByRole("button", { name: "Settings", exact: true }).click();
