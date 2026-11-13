@@ -1,7 +1,8 @@
 import {
   getBookmarkTree,
+  getBookmarkMetadata,
   linkBookmarks,
-  markBookmarkOrphaned,
+  moveBookmark,
   removeArticle,
   restoreBookmark,
   saveActivePage
@@ -11,6 +12,7 @@ import { db } from "../db/database";
 import type { Annotation, Article } from "../domain/types";
 import { statusAfterActivity, transitionStatus } from "../domain/status";
 import { normalizeUrl } from "../domain/url";
+import { enforceReadingRetention, saveReadingRetention } from "../browser/reading-retention";
 
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -19,6 +21,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     title: "Save page to Ready",
     contexts: ["page"]
   });
+
   chrome.contextMenus.create({
     id: "ready-save-selection",
     title: "Save selection to Ready",
@@ -26,9 +29,23 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
 });
 
-chrome.bookmarks.onRemoved.addListener((id) => {
-  void markBookmarkOrphaned(id);
+chrome.runtime.onStartup.addListener(() => {
+  void enforceReadingRetention().catch((error: unknown) =>
+    console.error("Ready could not clean up the reading list.", error)
+  );
 });
+
+function reconcileBookmarks(): void {
+  void getBookmarkMetadata().catch((error: unknown) =>
+    console.warn("Ready could not refresh Favorite links.", error)
+  );
+}
+
+chrome.bookmarks.onRemoved.addListener(() => {
+  reconcileBookmarks();
+});
+chrome.bookmarks.onMoved.addListener(reconcileBookmarks);
+chrome.bookmarks.onChanged.addListener(reconcileBookmarks);
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!tab?.id || !info.menuItemId.toString().startsWith("ready-save")) return;
@@ -76,6 +93,14 @@ async function handleMessage(request: ReadyRequest): Promise<ReadyResponse> {
   switch (request.type) {
     case "GET_BOOKMARK_TREE":
       return { ok: true, bookmarkTree: await getBookmarkTree() };
+    case "GET_BOOKMARK_METADATA":
+      return { ok: true, bookmarks: await getBookmarkMetadata() };
+    case "MOVE_BOOKMARK":
+      return { ok: true, ...await moveBookmark(request.articleId, request.folderId) };
+    case "SET_READING_RETENTION":
+      return { ok: true, removedCount: await saveReadingRetention(request.settings) };
+    case "APPLY_READING_RETENTION":
+      return { ok: true, removedCount: await enforceReadingRetention() };
     case "LINK_BOOKMARKS":
       return {
         ok: true,
@@ -131,17 +156,23 @@ async function handleMessage(request: ReadyRequest): Promise<ReadyResponse> {
       };
     }
     case "SAVE_READING_UPDATE": {
-      const article = await requireArticle(request.articleId);
       const now = Date.now();
-      await db.articles.put({
-        ...article,
-        progress: Math.max(article.progress, clamp(request.progress)),
-        position: request.position ?? article.position,
-        status: statusAfterActivity(article.status, request.activeSeconds),
-        lastReadAt: now,
-        updatedAt: now
+      await db.transaction("rw", [db.articles, db.readingHistory, db.sessions], async () => {
+        const active = await db.articles.get(request.articleId);
+        const archived = active ? undefined : await db.readingHistory.get(request.articleId);
+        const article = active ?? archived;
+        if (!article) throw new Error("The article no longer exists.");
+        const update = {
+          progress: Math.max(article.progress, clamp(request.progress)),
+          position: request.position ?? article.position,
+          status: statusAfterActivity(article.status, request.activeSeconds),
+          lastReadAt: now,
+          updatedAt: now
+        };
+        if (active) await db.articles.update(active.id, update);
+        else await db.readingHistory.update(article.id, update);
+        if (request.session) await db.sessions.put(request.session);
       });
-      if (request.session) await db.sessions.put(request.session);
       return { ok: true };
     }
     case "CREATE_ANNOTATION": {
@@ -176,11 +207,22 @@ async function handleMessage(request: ReadyRequest): Promise<ReadyResponse> {
       await db.annotations.delete(request.annotationId);
       return { ok: true };
     case "SET_STATUS": {
-      const article = await requireArticle(request.articleId);
-      await db.articles.update(article.id, {
-        status: transitionStatus(article.status, request.status),
-        updatedAt: Date.now()
+      await db.transaction("rw", db.articles, async () => {
+        const article = await requireArticle(request.articleId);
+        const now = Date.now();
+        await db.articles.update(article.id, {
+          status: transitionStatus(article.status, request.status),
+          completedAt: request.status === "read"
+            ? article.status === "read" ? article.completedAt : now
+            : article.completedAt,
+          updatedAt: now
+        });
       });
+      try {
+        await enforceReadingRetention();
+      } catch (error) {
+        throw new Error(`Reading status was saved, but cleanup failed: ${error instanceof Error ? error.message : "Unexpected cleanup error."}`);
+      }
       return { ok: true };
     }
   }

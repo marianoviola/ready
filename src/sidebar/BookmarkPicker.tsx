@@ -9,6 +9,8 @@ import type { BookmarkNode } from "../domain/types";
 
 interface BookmarkPickerProps {
   mode: "link" | "folder";
+  title?: string;
+  confirmLabel?: string;
   onClose: () => void;
   onLinked: (linked: number) => Promise<void>;
   onFolderSelected: (folderId?: string) => Promise<void>;
@@ -16,15 +18,28 @@ interface BookmarkPickerProps {
 
 export function BookmarkPicker({
   mode,
+  title,
+  confirmLabel,
   onClose,
   onLinked,
   onFolderSelected
 }: BookmarkPickerProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [tree, setTree] = useState<BookmarkNode[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<BookmarkLinkFilter>("unlinked");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const previousFocus = document.activeElement;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, []);
 
   useEffect(() => {
     void sendReadyMessage({ type: "GET_BOOKMARK_TREE" }).then((response) => {
@@ -81,22 +96,23 @@ export function BookmarkPicker({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        className="modal"
-        role="dialog"
-        aria-modal="true"
+      <dialog
+        ref={dialogRef}
+        className="modal bookmark-picker"
         aria-labelledby="bookmark-picker-title"
-        onMouseDown={(event) => event.stopPropagation()}
+        onCancel={(event) => {
+          event.preventDefault();
+          if (!loading) onClose();
+        }}
       >
         <div className="modal-header">
           <div>
             <p className="eyebrow">Edge Favorites</p>
             <h2 id="bookmark-picker-title">
-              {mode === "link" ? "Link Favorites" : "Choose destination"}
+              {title ?? (mode === "link" ? "Link Favorites" : "Choose destination")}
             </h2>
           </div>
-          <button className="icon-button" aria-label="Close" onClick={onClose}>
+          <button className="icon-button" aria-label="Close" disabled={loading} onClick={onClose}>
             ×
           </button>
         </div>
@@ -143,17 +159,16 @@ export function BookmarkPicker({
               {selected.size} selected
             </span>
           )}
-          <button className="button secondary" onClick={onClose}>Cancel</button>
+          <button className="button secondary" disabled={loading} onClick={onClose}>Cancel</button>
           <button
             className="button primary"
             disabled={selected.size === 0 || loading}
             onClick={() => void submit()}
           >
-            {mode === "link" ? "Link selected" : "Use folder"}
+            {confirmLabel ?? (mode === "link" ? "Link selected" : "Use folder")}
           </button>
         </div>
-      </section>
-    </div>
+      </dialog>
   );
 }
 

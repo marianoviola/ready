@@ -19,19 +19,25 @@ Edge Add-ons approval are separate steps; this repository does not imply a store
 - Save the active page, linking an existing matching Favorite when available.
 - Keep reading records, progress, highlights, notes, and history after a Favorite is deleted.
 - Restore orphaned records to an existing or newly created Favorite.
+- See live Favorite links and folder paths; move any linked Favorite directly from Ready without changing its tags, reading progress, or default save destination.
 - Track active reading progress without counting hidden/background tabs.
 - Save a text-anchored reading position and offer an explicit **Resume reading** action.
 - Create persistent CSS Custom Highlight API highlights and optional private notes.
 - Search local article metadata and notes.
 - Filter by reading status, website, tag, and orphan state; sort by recent activity or saved date; group by status, website, date, or tag with collapsible sections in List or horizontally scrolling Kanban layout.
 - Inherit tags from Favorite folders when linking, then edit them in an integrated editor with reusable existing tags and new tag creation.
-- Browse all used tags in the **Tags** tab, with separate article and source counts that open the corresponding filtered view.
-- Select visible articles for bulk tag addition, reading-status changes, or removal, with separate confirmation before deleting linked Edge Favorites.
+- Navigate between **Library** and **Sources**, each with its own **Tags** and **Discover** views, with general settings kept separate.
+- Use compact, consistent article and source cards: **Open/Resume** stays visible, with secondary actions in the **...** menu. Menus support arrow keys, Home/End, Escape, and outside-click dismissal.
+- Browse scoped tag directories and open the corresponding filtered article or source list.
+- Select visible articles for bulk tag addition, reading-status changes, or removal. One Ready confirmation offers an optional, unchecked **Also delete linked Edge Favorites** checkbox.
 - Keep a separate directory of websites to browse manually, with private notes and subscription status.
 - Tag sources during creation or editing, reusing tags from Library or creating new ones. Source and article tags share suggestions but remain independent; creating a source from an article suggests its tags without copying them automatically.
 - Search source names, domains, notes, and tags; filter by tag or subscription; group by tag or subscription in List or Kanban, with collapsible groups and separately saved group order. Sources with multiple tags appear in each tag group; untagged sources have their own group.
 - Sort sources by name, added date, updated date, or saved article count. The default remains subscribed first, then alphabetical. Updated date reflects source edits, not site visits.
 - Show deterministic, on-device forgotten, unfinished, and related recommendations.
+- Discover potential sources from websites already in your library, using the same source list controls. Suggestions make no external requests and are saved only after explicit confirmation.
+- View local active reading time, current status, daily activity, domain/tag breakdowns, and archived reading history in **Library → Statistics**.
+- Optionally clean up the oldest read articles beyond a configurable limit (100 by default). Automation starts disabled, never removes unread/in-progress articles, and never deletes Edge Favorites.
 - Export selected or all reading data to a versioned, browser-independent JSON file.
 - Preview, reconcile, and non-destructively merge JSON imports.
 
@@ -39,6 +45,23 @@ Ready's reading data stays in your browser profile. Ready has no backend, accoun
 analytics, telemetry, paid API, or AI dependency. Edge may sync Favorites when you
 enable browser sync. Opening sites, browser favicon retrieval, store updates, and
 the support website remain subject to their own services and privacy policies.
+
+### Reading-list removal and history
+
+After marking an article read, choose **Remove from list** or **Keep in list**.
+Removal archives its reading status, progress, sessions, URL, and historical Favorite
+reference for statistics; highlights and private notes are deleted. Edge Favorites
+are kept unless you explicitly select their deletion in the Ready confirmation.
+Moving a Favorite is available for any linked article, regardless of reading status.
+
+Enable **Reading-list automation** in Settings to retain only the configured number
+of read articles. Saving enabled settings immediately applies cleanup. Cleanup also
+runs after status changes, imports, and browser startup. Oldest is determined by the
+recorded completion time, falling back to last update for older records without a
+completion timestamp. There is no fabricated completion date for existing records.
+Linking an archived article restores its local identity and progress without
+duplicating session history. Full JSON backups include archived history and its
+sessions; selected exports include only the selected active articles.
 
 ## Development
 

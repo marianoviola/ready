@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { liveQuery } from "dexie";
+import type { BookmarkMetadata } from "../browser/bookmarks";
 import { sendReadyMessage } from "../browser/messages";
 import { db } from "../db/database";
 import {
@@ -12,6 +14,8 @@ import { urlsMatch } from "../domain/url";
 import type {
   Annotation,
   Article,
+  ReadingSession,
+  ReadingHistoryEntry,
   ReadingStatus,
   Recommendation,
   Source
@@ -21,17 +25,36 @@ import { BookmarkPicker } from "./BookmarkPicker";
 import { BookmarkSettings } from "./BookmarkSettings";
 import { SourceEditor, SourcesPanel } from "./SourcesPanel";
 import { TagEditor } from "./TagEditor";
+import { ReadingStats } from "./ReadingStats";
+import { TagDirectory } from "./TagDirectory";
+import { SourceDiscover } from "./SourceDiscover";
+import { BookmarkDetails } from "./BookmarkDetails";
+import { RemoveArticlesDialog } from "./RemoveArticlesDialog";
+import { ReadingRetentionSettings } from "./ReadingRetentionSettings";
+import { CardActionsMenu } from "./CardActionsMenu";
 
-type View = "library" | "tags" | "sources" | "discover" | "backup";
+type View = "library" | "tags" | "sources" | "discover" | "backup" | "stats";
+type Workspace = "library" | "sources";
 type Grouping = "date" | "domain" | "status" | "tag";
 type GroupOrders = Record<Grouping, string[]>;
+
+function readLibrarySnapshot() {
+  return Promise.all([
+    db.articles.toArray(), db.annotations.toArray(), db.sources.toArray(),
+    db.ignoredRecommendations.toArray(), db.sessions.toArray(), db.readingHistory.toArray()
+  ]);
+}
 
 export function App() {
   const headerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>("library");
+  const [workspace, setWorkspace] = useState<Workspace>("library");
   const [articles, setArticles] = useState<Article[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [sessions, setSessions] = useState<ReadingSession[]>([]);
+  const [history, setHistory] = useState<ReadingHistoryEntry[]>([]);
+  const [bookmarkMetadata, setBookmarkMetadata] = useState<BookmarkMetadata[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ReadingStatus | "all">("all");
@@ -47,12 +70,14 @@ export function App() {
   const [sort, setSort] = useState<ArticleSort>("activity");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [picker, setPicker] = useState<"link" | "restore">();
+  const [picker, setPicker] = useState<"link" | "restore" | "move">();
   const [restoreArticleId, setRestoreArticleId] = useState<string>();
   const [sourceArticle, setSourceArticle] = useState<Article>();
   const [tagEditor, setTagEditor] = useState<{ ids: string[]; initial: string[]; additive: boolean }>();
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [tagSearch, setTagSearch] = useState("");
+  const [removeTargets, setRemoveTargets] = useState<Article[]>([]);
+  const [removalError, setRemovalError] = useState("");
+  const [readArticle, setReadArticle] = useState<Article>();
   const [sourceTagFilter, setSourceTagFilter] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -76,32 +101,56 @@ export function App() {
     return () => window.clearTimeout(timeout);
   }, [message]);
 
-  const loadData = useCallback(async () => {
-    try {
-      const [nextArticles, nextAnnotations, nextSources, ignored] = await Promise.all([
-        db.articles.toArray(),
-        db.annotations.toArray(),
-        db.sources.toArray(),
-        db.ignoredRecommendations.toArray()
-      ]);
+  const applySnapshot = useCallback((
+    [nextArticles, nextAnnotations, nextSources, ignored, nextSessions, nextHistory]:
+      Awaited<ReturnType<typeof readLibrarySnapshot>>
+  ) => {
       setArticles(nextArticles);
       setSelectedIds((current) => new Set([...current].filter((id) => nextArticles.some((article) => article.id === id))));
       setAnnotations(nextAnnotations);
       setSources(nextSources);
+      setSessions(nextSessions);
+      setHistory(nextHistory);
       setRecommendations(
         rankRecommendations(nextArticles, nextAnnotations, ignored)
       );
+      setLoading(false);
+  }, []);
+
+  const loadData = useCallback(async () => {
+    try {
+      const response = await sendReadyMessage({ type: "GET_BOOKMARK_METADATA" });
+      if (!response.ok) throw new Error(response.error);
+      if (!("bookmarks" in response)) throw new Error("Favorite details could not be loaded.");
+      setBookmarkMetadata(response.bookmarks);
+      applySnapshot(await readLibrarySnapshot());
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Ready could not load your library.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applySnapshot]);
 
   useEffect(() => {
     void loadData();
-  }, [loadData]);
+    const subscription = liveQuery(readLibrarySnapshot).subscribe({
+      next: applySnapshot,
+      error: (reason: unknown) => setError(reason instanceof Error ? reason.message : "Ready could not refresh your library.")
+    });
+    const refresh = () => { void loadData(); };
+    chrome.bookmarks.onCreated.addListener(refresh);
+    chrome.bookmarks.onChanged.addListener(refresh);
+    chrome.bookmarks.onMoved.addListener(refresh);
+    chrome.bookmarks.onRemoved.addListener(refresh);
+    return () => {
+      subscription.unsubscribe();
+      chrome.bookmarks.onCreated.removeListener(refresh);
+      chrome.bookmarks.onChanged.removeListener(refresh);
+      chrome.bookmarks.onMoved.removeListener(refresh);
+      chrome.bookmarks.onRemoved.removeListener(refresh);
+    };
+  }, [applySnapshot, loadData]);
 
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
@@ -203,6 +252,7 @@ export function App() {
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return articles
+      .filter((article) => view !== "discover" || workspace !== "library" || recommendations.some((item) => item.articleId === article.id))
       .filter((article) => statusFilter === "all" || article.status === statusFilter)
       .filter((article) => !orphanedOnly || article.bookmarkState === "orphaned")
       .filter((article) => domainFilter === "all" || article.domain === domainFilter)
@@ -226,7 +276,10 @@ export function App() {
     search,
     sort,
     statusFilter,
-    tagFilter
+    tagFilter,
+    view,
+    workspace,
+    recommendations
   ]);
 
   const grouped = useMemo(() => {
@@ -312,28 +365,46 @@ export function App() {
   }
 
   async function setStatus(articleId: string, status: ReadingStatus) {
-    const response = await sendReadyMessage({ type: "SET_STATUS", articleId, status });
-    if (!response.ok) setError(response.error);
-    else await loadData();
+    clearFeedback();
+    try {
+      const response = await sendReadyMessage({ type: "SET_STATUS", articleId, status });
+      if (!response.ok) throw new Error(response.error);
+      await loadData();
+      if (status === "read") setReadArticle(articles.find((article) => article.id === articleId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The reading status could not be updated.");
+    }
   }
 
   async function removeArticle(article: Article) {
-    const remove = window.confirm(
-      `Remove “${article.title}” from Ready? Your progress, highlights, and notes for it will be deleted.`
-    );
-    if (!remove) return;
-    const deleteBookmark =
-      article.bookmarkState === "linked" &&
-      window.confirm("Also delete the linked Edge Favorite?");
-    const response = await sendReadyMessage({
-      type: "REMOVE_ARTICLE",
-      articleId: article.id,
-      deleteBookmark
-    });
-    if (!response.ok) setError(response.error);
-    else {
-      setMessage("Article removed from Ready.");
+    setRemovalError("");
+    setRemoveTargets([article]);
+  }
+
+  async function confirmRemoval(deleteBookmarks: boolean) {
+    clearFeedback();
+    setRemovalError("");
+    setBulkBusy(true);
+    let completed = 0;
+    try {
+      for (const article of removeTargets) {
+        const response = await sendReadyMessage({
+          type: "REMOVE_ARTICLE",
+          articleId: article.id,
+          deleteBookmark: deleteBookmarks
+        });
+        if (!response.ok) throw new Error(response.error);
+        completed++;
+        setRemoveTargets((current) => current.filter((item) => item.id !== article.id));
+      }
       await loadData();
+      setMessage(`${completed} article${completed === 1 ? "" : "s"} removed from Ready. Reading history preserved.`);
+      setReadArticle(undefined);
+    } catch (reason) {
+      await loadData();
+      setRemovalError(`${completed} of ${removeTargets.length} articles removed. ${reason instanceof Error ? reason.message : "Removal failed."}`);
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -358,21 +429,17 @@ export function App() {
   async function bulkAction(action: "remove" | ReadingStatus) {
     const selected = filtered.filter((article) => selectedIds.has(article.id));
     if (selected.length === 0) return;
-    let deleteBookmark = false;
     if (action === "remove") {
-      if (!window.confirm(`Remove ${selected.length} articles from Ready? Their progress, highlights, and notes will be deleted.`)) return;
-      if (selected.some((article) => article.bookmarkState === "linked")) {
-        deleteBookmark = window.confirm("Also delete the linked Edge Favorites?");
-      }
+      setRemovalError("");
+      setRemoveTargets(selected);
+      return;
     }
     clearFeedback();
     setBulkBusy(true);
     let completed = 0;
     try {
       for (const article of selected) {
-        const response = await sendReadyMessage(action === "remove"
-          ? { type: "REMOVE_ARTICLE", articleId: article.id, deleteBookmark }
-          : { type: "SET_STATUS", articleId: article.id, status: action });
+        const response = await sendReadyMessage({ type: "SET_STATUS", articleId: article.id, status: action });
         if (!response.ok) throw new Error(response.error);
         completed++;
         setSelectedIds((current) => {
@@ -382,10 +449,10 @@ export function App() {
         });
       }
       await loadData();
-      setMessage(`${completed} articles ${action === "remove" ? "removed" : "updated"}.`);
+      setMessage(`${completed} articles updated.`);
     } catch (reason) {
       await loadData();
-      setError(`${completed} of ${selected.length} articles ${action === "remove" ? "removed" : "updated"}. ${reason instanceof Error ? reason.message : "The bulk action failed."}`);
+      setError(`${completed} of ${selected.length} articles updated. ${reason instanceof Error ? reason.message : "The bulk action failed."}`);
     } finally {
       setBulkBusy(false);
     }
@@ -491,30 +558,36 @@ export function App() {
       </header>
 
       <nav className="tabs" aria-label="Ready sections">
-        {(["library", "tags", "sources", "discover", "backup"] as View[]).map((item) => (
+        {(["library", "sources", "backup"] as const).map((item) => (
           <button
             key={item}
-            className={view === item ? "tab active" : "tab"}
-            aria-current={view === item ? "page" : undefined}
+            className={(item === "backup" ? view === "backup" : view !== "backup" && workspace === item) ? "tab active" : "tab"}
+            aria-current={(item === "backup" ? view === "backup" : view !== "backup" && workspace === item) ? "page" : undefined}
             onClick={() => {
-              if (item === "sources" && view !== "sources") setSourceTagFilter("");
+              if (item !== "backup") setWorkspace(item);
+              if (item === "sources") setSourceTagFilter("");
               setView(item);
             }}
           >
             {item === "library"
               ? "Library"
-              : item === "tags"
-                ? "Tags"
               : item === "sources"
                 ? "Sources"
-                : item === "discover"
-                  ? "Discover"
                   : "Settings"}
             {item === "library" && <span className="count">{articles.length}</span>}
             {item === "sources" && <span className="count">{sources.length}</span>}
           </button>
         ))}
       </nav>
+      {view !== "backup" && (
+        <nav className="tabs subnav" aria-label={`${workspace === "library" ? "Library" : "Sources"} views`}>
+          {([workspace, "tags", "discover", ...(workspace === "library" ? ["stats" as const] : [])] as View[]).map((item) => (
+            <button key={item} type="button" className={view === item ? "tab active" : "tab"} aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
+              {item === "library" ? "Articles" : item === "sources" ? "All sources" : item === "tags" ? "Tags" : item === "stats" ? "Statistics" : "Discover"}
+            </button>
+          ))}
+        </nav>
+      )}
       </div>
 
       {error && (
@@ -529,9 +602,25 @@ export function App() {
           <button type="button" className="feedback-dismiss" aria-label="Dismiss notification" onClick={() => setMessage("")}>×</button>
         </div>
       )}
+      {readArticle && articles.some((article) => article.id === readArticle.id) && (
+        <div className="feedback read-complete" role="status">
+          <span>Finished reading "{readArticle.title}"? You can remove it from Ready and keep its reading history and Edge Favorite.</span>
+          <div className="button-row">
+            <button type="button" className="button secondary compact" onClick={() => void removeArticle(readArticle)}>Remove from list</button>
+            <button type="button" className="button ghost compact" onClick={() => setReadArticle(undefined)}>Keep in list</button>
+          </div>
+        </div>
+      )}
 
-      {view === "library" && (
-        <main className="library">
+      {(view === "library" || (view === "discover" && workspace === "library")) && (
+        <main className="library" aria-label={view === "discover" ? "Discover articles" : "Articles"}>
+          {view === "discover" && (
+            <div className="section-heading">
+              <p className="eyebrow">From your library</p>
+              <h2>Rediscover something worth reading</h2>
+              <p className="muted">Private recommendations calculated on this device. Use the same filters and organization as your library.</p>
+            </div>
+          )}
           <div className="search-row">
             <label className="search-box">
               <svg className="search-icon" aria-hidden="true" viewBox="0 0 24 24">
@@ -709,6 +798,7 @@ export function App() {
                     <ArticleCard
                       key={article.id}
                       article={article}
+                      bookmarkMetadata={bookmarkMetadata.find((item) => item.articleId === article.id)}
                       currentPage={!!activeUrl && [article.originalUrl, article.normalizedUrl, article.canonicalUrl].some((url) => !!url && urlsMatch(url, activeUrl))}
                       annotations={annotations.filter((item) => item.articleId === article.id)}
                       selected={selectedIds.has(article.id)}
@@ -724,12 +814,17 @@ export function App() {
                         setRestoreArticleId(article.id);
                         setPicker("restore");
                       }}
+                      onMove={() => {
+                        setRestoreArticleId(article.id);
+                        setPicker("move");
+                      }}
                       onRemove={removeArticle}
                       onEditTags={(article) => setTagEditor({ ids: [article.id], initial: article.tags ?? [], additive: false })}
                       sourceSaved={sources.some((source) => source.domain === article.domain)}
                       onSource={() => {
                         if (sources.some((source) => source.domain === article.domain)) {
                           setSourceTagFilter("");
+                          setWorkspace("sources");
                           setView("sources");
                         } else {
                           setSourceArticle(article);
@@ -737,6 +832,8 @@ export function App() {
                       }}
                       onEditAnnotation={editAnnotation}
                       onDeleteAnnotation={deleteAnnotation}
+                      recommendation={view === "discover" ? recommendations.find((item) => item.articleId === article.id) : undefined}
+                      onIgnoreRecommendation={ignoreRecommendation}
                     />
                   ))}
                 </div>}
@@ -748,81 +845,38 @@ export function App() {
         </main>
       )}
 
-      {view === "discover" && (
-        <main className="panel-page">
-          <div className="section-heading">
-            <p className="eyebrow">From your library</p>
-            <h2>Rediscover something worth reading</h2>
-            <p className="muted">Private recommendations calculated on this device.</p>
-          </div>
-          {recommendations.length === 0 ? (
-            <EmptyState title="Nothing to surface yet" detail="Recommendations appear as your local library and reading history grow." />
-          ) : (
-            <div className="recommendations">
-              {recommendations.map((recommendation) => {
-                const article = articles.find((item) => item.id === recommendation.articleId);
-                if (!article) return null;
-                return (
-                  <article className="recommendation-card" key={`${recommendation.articleId}:${recommendation.category}`}>
-                    <span className={`category category-${recommendation.category}`}>
-                      {categoryLabel(recommendation.category)}
-                    </span>
-                    <h3>{article.title}</h3>
-                    <p className="muted">{recommendation.reason}</p>
-                    <div className="button-row">
-                      <button className="button primary" onClick={() => void openArticle(article, article.status === "in_progress")}>Open</button>
-                      <button className="button ghost" onClick={() => void ignoreRecommendation(recommendation)}>Not now</button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </main>
-      )}
-
       {view === "tags" && (
-        <main className="panel-page">
-          <div className="section-heading">
-            <p className="eyebrow">Your library</p>
-            <h2>Tags</h2>
-            <p className="muted">Browse tags across articles and sources. Tag assignments stay independent.</p>
-          </div>
-          <label className="search-box">
-            <span className="sr-only">Search tags</span>
-            <input type="search" placeholder="Search tags" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} />
-          </label>
-          {allTags.length === 0 ? <EmptyState title="No tags yet" detail="Add tags to an article or edit a source to create your first tag." /> : (
-            <div className="tag-directory">
-              {allTags.filter((tag) => tag.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase())).map((tag) => {
-                const articleCount = articles.filter((article) => article.tags?.some((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase())).length;
-                const sourceCount = sources.filter((source) => source.tags?.some((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase())).length;
-                return (
-                  <div className="tag-directory-item" key={tag}>
-                    <span>{tag}</span>
-                    <div className="tag-directory-counts">
-                      <button className="count" disabled={articleCount === 0} aria-label={`View articles tagged ${tag}`} onClick={() => {
-                        setSearch("");
-                        setStatusFilter("all");
-                        setDomainFilter("all");
-                        setOrphanedOnly(false);
-                        setTagFilter(tags.find((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase()) ?? "");
-                        setView("library");
-                      }}>
-                        {articleCount} {articleCount === 1 ? "article" : "articles"}
-                      </button>
-                      <button className="count" disabled={sourceCount === 0} aria-label={`View sources tagged ${tag}`} onClick={() => {
-                        setSourceTagFilter(tag);
-                        setView("sources");
-                      }}>{sourceCount} {sourceCount === 1 ? "source" : "sources"}</button>
-                    </div>
-                  </div>
-                );
-              })}
-              {!allTags.some((tag) => tag.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase())) && <EmptyState title="No tags match" detail="Try a different search." />}
-            </div>
-          )}
-        </main>
+        <TagDirectory
+          key={workspace}
+          scope={workspace}
+          articles={articles}
+          sources={sources}
+          onSelectTag={(tag) => {
+            if (workspace === "library") {
+              setSearch("");
+              setStatusFilter("all");
+              setDomainFilter("all");
+              setOrphanedOnly(false);
+              setTagFilter(tags.find((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase()) ?? "");
+              setView("library");
+            } else {
+              setSourceTagFilter(tag);
+              setView("sources");
+            }
+          }}
+        />
+      )}
+      {view === "stats" && <ReadingStats articles={articles} sessions={sessions} history={history} />}
+      {view === "discover" && workspace === "sources" && (
+        <SourceDiscover articles={articles} sources={sources} availableTags={allTags} onChanged={loadData} onViewArticles={(domain) => {
+          setWorkspace("library");
+          setView("library");
+          setSearch("");
+          setStatusFilter("all");
+          setOrphanedOnly(false);
+          setDomainFilter(domain);
+          setTagFilter("");
+        }} />
       )}
 
       {view === "sources" && (
@@ -839,6 +893,7 @@ export function App() {
             setOrphanedOnly(false);
             setDomainFilter(domain);
             setTagFilter("");
+            setWorkspace("library");
             setView("library");
           }}
         />
@@ -846,7 +901,10 @@ export function App() {
 
       {view === "backup" && (
         <>
-          <div className="settings-preferences"><BookmarkSettings /></div>
+          <div className="settings-preferences">
+            <BookmarkSettings />
+            <ReadingRetentionSettings onChanged={loadData} />
+          </div>
           <BackupPanel
             articles={articles}
             sources={sources}
@@ -870,12 +928,21 @@ export function App() {
       {picker && (
         <BookmarkPicker
           mode={picker === "link" ? "link" : "folder"}
+          title={picker === "move" ? "Move Favorite" : picker === "restore" ? "Restore or relink Favorite" : undefined}
+          confirmLabel={picker === "move" ? "Move here" : undefined}
           onClose={() => {
             setPicker(undefined);
             setRestoreArticleId(undefined);
           }}
           onLinked={completeLink}
-          onFolderSelected={restore}
+          onFolderSelected={async (folderId) => {
+            if (picker !== "move") return restore(folderId);
+            if (!restoreArticleId || !folderId) throw new Error("Choose a destination folder.");
+            const response = await sendReadyMessage({ type: "MOVE_BOOKMARK", articleId: restoreArticleId, folderId });
+            if (!response.ok) throw new Error(response.error);
+            await loadData();
+            setMessage("Favorite moved. Reading data and tags are unchanged.");
+          }}
         />
       )}
 
@@ -895,12 +962,23 @@ export function App() {
       {tagEditor && (
         <TagEditor initial={tagEditor.initial} available={allTags} additive={tagEditor.additive} onClose={() => setTagEditor(undefined)} onSave={saveTags} />
       )}
+      {removeTargets.length > 0 && (
+        <RemoveArticlesDialog
+          selectedCount={removeTargets.length}
+          bookmarkCount={removeTargets.filter((article) => article.bookmarkState === "linked" && article.bookmarkId).length}
+          pending={bulkBusy}
+          error={removalError}
+          onCancel={() => { setRemoveTargets([]); setRemovalError(""); }}
+          onConfirm={confirmRemoval}
+        />
+      )}
     </div>
   );
 }
 
 interface ArticleCardProps {
   article: Article;
+  bookmarkMetadata?: BookmarkMetadata;
   currentPage: boolean;
   annotations: Annotation[];
   selected: boolean;
@@ -909,16 +987,22 @@ interface ArticleCardProps {
   onOpen: (article: Article, resume: boolean) => Promise<void>;
   onStatus: (id: string, status: ReadingStatus) => Promise<void>;
   onRestore: () => void;
+  onMove: () => void;
   onRemove: (article: Article) => Promise<void>;
   onEditTags: (article: Article) => void;
   sourceSaved: boolean;
   onSource: () => void;
   onEditAnnotation: (annotation: Annotation) => Promise<void>;
   onDeleteAnnotation: (annotation: Annotation) => Promise<void>;
+  recommendation?: Recommendation;
+  onIgnoreRecommendation: (recommendation: Recommendation) => Promise<void>;
 }
 
 function ArticleCard(props: ArticleCardProps) {
-  const { article, annotations } = props;
+  const { article, annotations, recommendation } = props;
+  const linked = props.bookmarkMetadata
+    ? props.bookmarkMetadata.state === "linked"
+    : article.bookmarkState === "linked" && Boolean(article.bookmarkId);
   return (
     <article className={`article-card${props.currentPage ? " current-page" : ""}`}>
       <div className="article-select">
@@ -930,10 +1014,16 @@ function ArticleCard(props: ArticleCardProps) {
           <span>{article.domain}</span>
           <span>·</span>
           <time dateTime={new Date(article.originalSavedAt).toISOString()}>{relativeDate(article.originalSavedAt)}</time>
-          {article.bookmarkState === "orphaned" && <span className="orphan-badge">Favorite removed</span>}
           {props.currentPage && <span className="current-page-badge" aria-current="page">Current page</span>}
         </div>
         <button className="article-title" onClick={() => void props.onOpen(article, false)}>{article.title}</button>
+        <BookmarkDetails article={article} metadata={props.bookmarkMetadata} />
+        {recommendation && (
+          <div className="recommendation-detail">
+            <span className={`category category-${recommendation.category}`}>{categoryLabel(recommendation.category)}</span>
+            <p className="muted">{recommendation.reason}</p>
+          </div>
+        )}
         {(article.tags?.length ?? 0) > 0 && (
           <div className="article-tags" aria-label="Tags">
             {article.tags?.map((tag) => <span key={tag}>{tag}</span>)}
@@ -941,27 +1031,28 @@ function ArticleCard(props: ArticleCardProps) {
         )}
         {article.progress > 0 && (
           <div className="progress-row">
-            <div className="progress-track" role="progressbar" aria-valuenow={Math.round(article.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
+            <div className="progress-track" role="progressbar" aria-label={`Reading progress for ${article.title}`} aria-valuenow={Math.round(article.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
               <span style={{ width: `${Math.round(article.progress * 100)}%` }} />
             </div>
             <span>{Math.round(article.progress * 100)}%</span>
           </div>
         )}
         <div className="card-actions">
-          {article.position && <button className="text-button" onClick={() => void props.onOpen(article, true)}>Resume</button>}
+          <button className="button secondary compact" onClick={() => void props.onOpen(article, Boolean(article.position))}>
+            {article.position ? "Resume" : "Open"}
+          </button>
           <select value={article.status} onChange={(event) => void props.onStatus(article.id, event.target.value as ReadingStatus)} aria-label={`Status for ${article.title}`}>
             <option value="unread">Unread</option>
             <option value="in_progress">In progress</option>
             <option value="read">Read</option>
           </select>
-          <button className="text-button" onClick={() => void props.onEditTags(article)}>
-            {article.tags?.length ? "Edit tags" : "Add tags"}
-          </button>
-          <button className="text-button" onClick={props.onSource}>
-            {props.sourceSaved ? "View source" : "Add source"}
-          </button>
-          {article.bookmarkState === "orphaned" && <button className="text-button" onClick={props.onRestore}>Restore Favorite</button>}
-          <button className="text-button danger-text" onClick={() => void props.onRemove(article)}>Remove</button>
+          <CardActionsMenu label={`Actions for article ${article.title}`} actions={[
+            { label: article.tags?.length ? "Edit tags" : "Add tags", onSelect: () => props.onEditTags(article) },
+            { label: props.sourceSaved ? "View source" : "Add source", onSelect: props.onSource },
+            { label: linked ? "Move Favorite" : "Restore or relink Favorite", onSelect: linked ? props.onMove : props.onRestore },
+            ...(recommendation ? [{ label: "Not now", onSelect: () => void props.onIgnoreRecommendation(recommendation) }] : []),
+            { label: "Remove", danger: true, onSelect: () => void props.onRemove(article) }
+          ]} />
         </div>
         {annotations.length > 0 && (
           <details className="notes">

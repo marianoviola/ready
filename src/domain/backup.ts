@@ -2,6 +2,7 @@ import type {
   Annotation,
   Article,
   ImportPreview,
+  ReadingHistoryEntry,
   ReadingSession,
   ReadyBackup,
   Source
@@ -14,16 +15,20 @@ export function createBackup(
   articles: Article[],
   annotations: Annotation[],
   sessions: ReadingSession[],
-  sources: Source[] = []
+  sources: Source[] = [],
+  readingHistory: ReadingHistoryEntry[] = []
 ): ReadyBackup {
   const articleIds = new Set(articles.map((article) => article.id));
+  const history = uniqueHistory(readingHistory, articleIds);
+  const retainedIds = new Set([...articleIds, ...history.map((entry) => entry.id)]);
   return {
     schemaVersion: 2,
     exportedAt: new Date().toISOString(),
     articles: articles.map(({ bookmarkId: _bookmarkId, bookmarkState: _state, ...article }) => article),
-    annotations: annotations.filter((item) => articleIds.has(item.articleId)),
-    sessions: sessions.filter((item) => articleIds.has(item.articleId)),
-    sources
+    annotations: annotations.filter((item) => retainedIds.has(item.articleId)),
+    sessions: sessions.filter((item) => retainedIds.has(item.articleId)),
+    sources,
+    readingHistory: history.map(({ bookmarkId: _bookmarkId, bookmarkState: _state, ...entry }) => entry)
   };
 }
 
@@ -114,6 +119,16 @@ export function mergeImportedSource(
   };
 }
 
+export function mergeImportedReadingHistory(
+  incoming: NonNullable<ReadyBackup["readingHistory"]>[number],
+  local?: ReadingHistoryEntry
+): ReadingHistoryEntry {
+  return {
+    ...mergeImportedArticle(sanitizeHistory(incoming), local),
+    archivedAt: Math.max(local?.archivedAt ?? incoming.archivedAt, incoming.archivedAt)
+  };
+}
+
 function validateBackup(value: unknown): string[] {
   if (!isRecord(value)) return ["Backup must be a JSON object."];
   const errors: string[] = [];
@@ -132,9 +147,12 @@ function validateBackup(value: unknown): string[] {
   if (value.schemaVersion === 2 && !Array.isArray(value.sources)) {
     errors.push("Backup sources must be an array.");
   }
+  if (value.readingHistory !== undefined && !Array.isArray(value.readingHistory)) {
+    errors.push("Backup reading history must be an array.");
+  }
   if (errors.length > 0) return errors;
 
-  const articles = value.articles as unknown[];
+  const articles = [...value.articles as unknown[], ...(value.readingHistory as unknown[] ?? [])];
   for (const [index, article] of articles.entries()) {
     if (!isRecord(article)) {
       errors.push(`Article ${index + 1} must be an object.`);
@@ -163,11 +181,33 @@ function validateBackup(value: unknown): string[] {
       errors.push(`Article ${index + 1} has invalid tags.`);
     }
     if (
-      typeof article.progress !== "number" ||
+      !isFiniteNumber(article.progress) ||
       article.progress < 0 ||
       article.progress > 1
     ) {
       errors.push(`Article ${index + 1} has invalid reading progress.`);
+    }
+    if (article.completedAt !== undefined && !isFiniteNumber(article.completedAt)) {
+      errors.push(`Article ${index + 1} has invalid completion time.`);
+    }
+  }
+
+  for (const [index, entry] of (value.readingHistory as unknown[] ?? []).entries()) {
+    if (!isRecord(entry)) continue;
+    if (
+      !isFiniteNumber(entry.archivedAt) ||
+      !isFiniteNumber(entry.originalSavedAt) ||
+      !isFiniteNumber(entry.createdAt) ||
+      !isFiniteNumber(entry.updatedAt) ||
+      typeof entry.title !== "string" ||
+      (entry.lastReadAt !== undefined && !isFiniteNumber(entry.lastReadAt)) ||
+      (entry.canonicalUrl !== undefined && typeof entry.canonicalUrl !== "string") ||
+      (entry.position !== undefined &&
+        (!isRecord(entry.position) || !isTextAnchor(entry.position.anchor) ||
+          !isFiniteNumber(entry.position.savedAt) || !isFiniteNumber(entry.position.progress) ||
+          entry.position.progress < 0 || entry.position.progress > 1))
+    ) {
+      errors.push(`Reading history entry ${index + 1} is invalid.`);
     }
   }
 
@@ -239,14 +279,58 @@ function upgradeBackup(value: unknown): ReadyBackup {
     annotations: Annotation[];
     sessions: ReadingSession[];
     sources?: Source[];
+    readingHistory?: ReadyBackup["readingHistory"];
   };
+  const activeIds = new Set(backup.articles.map((article) => article.id));
+  const readingHistory = uniqueHistory(backup.readingHistory ?? [], activeIds).map(sanitizeHistory);
+  const retainedIds = new Set([...activeIds, ...readingHistory.map((entry) => entry.id)]);
   return {
     schemaVersion: 2,
     exportedAt: backup.exportedAt,
-    articles: backup.articles,
-    annotations: backup.annotations,
-    sessions: backup.sessions,
-    sources: backup.sources ?? []
+    articles: backup.articles.map((entry) => {
+      const { bookmarkId: _bookmarkId, bookmarkState: _state, ...article } = entry as Article;
+      return article;
+    }),
+    annotations: backup.annotations.filter((item) => retainedIds.has(item.articleId)),
+    sessions: backup.sessions.filter((item) => retainedIds.has(item.articleId)),
+    sources: backup.sources ?? [],
+    readingHistory
+  };
+}
+
+function uniqueHistory<T extends { id: string; archivedAt: number }>(
+  history: T[],
+  activeIds: Set<string>
+): T[] {
+  const entries = new Map<string, T>();
+  for (const entry of history) {
+    if (activeIds.has(entry.id)) continue;
+    const existing = entries.get(entry.id);
+    if (!existing || entry.archivedAt > existing.archivedAt) entries.set(entry.id, entry);
+  }
+  return [...entries.values()];
+}
+
+function sanitizeHistory(
+  entry: NonNullable<ReadyBackup["readingHistory"]>[number]
+): NonNullable<ReadyBackup["readingHistory"]>[number] {
+  return {
+    id: entry.id,
+    originalUrl: entry.originalUrl,
+    normalizedUrl: normalizeUrl(entry.originalUrl),
+    canonicalUrl: entry.canonicalUrl,
+    title: entry.title,
+    domain: getDomain(entry.originalUrl),
+    tags: normalizeTags(entry.tags ?? []),
+    originalSavedAt: entry.originalSavedAt,
+    status: entry.status,
+    progress: entry.progress,
+    position: entry.position,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    lastReadAt: entry.lastReadAt,
+    completedAt: entry.completedAt,
+    archivedAt: entry.archivedAt
   };
 }
 

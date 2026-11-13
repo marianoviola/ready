@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { db } from "../db/database";
 import { groupSources, selectSources, sourceFromInput, type SourceGrouping, type SourceSort, type SubscriptionFilter } from "../domain/source";
+import { discoverSources, sourceDomain, type SourceCandidate } from "../domain/source-discovery";
 import { moveGroup, reconcileGroupOrder } from "../domain/group-order";
 import { normalizeTags } from "../domain/tags";
 import type { Article, Source } from "../domain/types";
 import { TagPicker, tagsWithQuery } from "./TagPicker";
+import { CardActionsMenu } from "./CardActionsMenu";
 
-interface SourcesPanelProps {
+export interface SourcesPanelProps {
   sources: Source[];
   articles: Article[];
   onChanged: () => Promise<void>;
   onViewArticles: (domain: string) => void;
   availableTags: string[];
   initialTag: string;
+  mode?: "saved" | "discover";
 }
 
 export function SourcesPanel({
@@ -21,10 +24,13 @@ export function SourcesPanel({
   onChanged,
   onViewArticles,
   availableTags,
-  initialTag
+  initialTag,
+  mode = "saved"
 }: SourcesPanelProps) {
+  const discovering = mode === "discover";
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Source | null>();
+  const [addingCandidate, setAddingCandidate] = useState<SourceCandidate>();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [tagFilter, setTagFilter] = useState(initialTag);
@@ -36,8 +42,14 @@ export function SourcesPanel({
   const [orders, setOrders] = useState<Record<SourceGrouping, string[]>>({ none: [], tag: [], subscription: [] });
   const [orderLoaded, setOrderLoaded] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
-  const tags = useMemo(() => normalizeTags(sources.flatMap((source) => source.tags ?? []))
-    .sort((left, right) => left.localeCompare(right)), [sources]);
+  const candidates = useMemo(() => discoverSources(articles, sources), [articles, sources]);
+  const displayedSources = useMemo(() => discovering ? candidates.map((candidate): Source => ({
+    id: candidate.domain, name: candidate.domain, url: candidate.url,
+    normalizedUrl: candidate.url, domain: candidate.domain, subscribed: false,
+    tags: candidate.suggestedTags, createdAt: candidate.createdAt, updatedAt: candidate.updatedAt
+  })) : sources, [candidates, discovering, sources]);
+  const tags = useMemo(() => normalizeTags(displayedSources.flatMap((source) => source.tags ?? []))
+    .sort((left, right) => left.localeCompare(right)), [displayedSources]);
 
   useEffect(() => {
     if (!message) return;
@@ -53,8 +65,9 @@ export function SourcesPanel({
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
     let disposed = false;
-    void chrome.storage.local.get("sourceGroupOrders").then((stored) => {
-      const value: unknown = stored.sourceGroupOrders;
+    const storageKey = discovering ? "sourceDiscoverGroupOrders" : "sourceGroupOrders";
+    void chrome.storage.local.get(storageKey).then((stored) => {
+      const value: unknown = stored[storageKey];
       if (value !== undefined) {
         if (!value || typeof value !== "object") throw new Error("Saved source group order is invalid.");
         const next: Record<SourceGrouping, string[]> = { none: [], tag: [], subscription: [] };
@@ -74,18 +87,23 @@ export function SourcesPanel({
       if (!disposed) setError(reason instanceof Error ? reason.message : "Source group order could not be loaded.");
     });
     return () => { disposed = true; };
-  }, []);
+  }, [discovering]);
 
   const articleCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const article of articles) {
-      counts.set(article.domain, (counts.get(article.domain) ?? 0) + 1);
+    if (discovering) {
+      for (const candidate of candidates) counts.set(candidate.domain, candidate.articleCount);
+    } else {
+      for (const article of articles) {
+        counts.set(article.domain, (counts.get(article.domain) ?? 0) + 1);
+      }
     }
     return counts;
-  }, [articles]);
+  }, [articles, candidates, discovering]);
 
-  const filtered = useMemo(() => selectSources(sources, query, tagFilter, subscription, sort, articleCounts),
-    [sources, query, tagFilter, subscription, sort, articleCounts]);
+  const filtered = useMemo(() => selectSources(displayedSources, query, tagFilter,
+    discovering ? "all" : subscription, sort, articleCounts),
+    [displayedSources, query, tagFilter, subscription, sort, articleCounts, discovering]);
   const groups = useMemo(() => {
     const grouped = groupSources(filtered, grouping);
     return reconcileGroupOrder(orders[grouping], grouped.map((group) => group.key))
@@ -97,7 +115,7 @@ export function SourcesPanel({
     setError("");
     try {
       const next = { ...orders, [grouping]: moveGroup(orders[grouping], groups.map((group) => group.key), key, direction) };
-      await chrome.storage.local.set({ sourceGroupOrders: next });
+      await chrome.storage.local.set({ [discovering ? "sourceDiscoverGroupOrders" : "sourceGroupOrders"]: next });
       setOrders(next);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Source group order could not be saved.");
@@ -115,8 +133,15 @@ export function SourcesPanel({
     if (duplicate && duplicate.id !== source.id) {
       throw new Error("This source is already saved.");
     }
+    if (addingCandidate) {
+      const saved = await db.sources.toArray();
+      if (saved.some((item) => sourceDomain(item) === sourceDomain(source))) {
+        throw new Error("A source for this domain is already saved.");
+      }
+    }
     await db.sources.put(source);
     setEditing(undefined);
+    setAddingCandidate(undefined);
     setMessage(editing ? "Source updated." : "Source added.");
     await onChanged();
   }
@@ -143,37 +168,36 @@ export function SourcesPanel({
   }
 
   return (
-    <main className="panel-page">
-      <div className="section-heading source-heading">
-        <div>
-          <p className="eyebrow">Sites worth returning to</p>
-          <h2>Sources</h2>
-          <p className="muted">
-            Keep publications and websites you want to browse manually.
-          </p>
-        </div>
-        <button className="button primary compact" onClick={() => setEditing(null)}>
-          Add source
-        </button>
-      </div>
+    <main className="panel-page" aria-label={discovering ? "Discover sources" : "Sources"}>
+      {discovering && <div className="section-heading">
+        <p className="eyebrow">From your library</p>
+        <h2>Discover sources</h2>
+        <p className="muted">Websites from your saved articles, suggested on this device.</p>
+      </div>}
 
       {error && <p className="feedback error" role="alert">{error}</p>}
       {message && <p className="feedback success" role="status">{message}</p>}
 
-      {sources.length > 0 && (<>
-        <label className="search-box source-search">
+      <div className="search-row">
+        <label className="search-box">
           <svg className="search-icon" aria-hidden="true" viewBox="0 0 24 24">
             <circle cx="10.5" cy="10.5" r="6.5" />
             <path d="m16 16 5 5" />
           </svg>
-          <span className="sr-only">Search sources</span>
+          <span className="sr-only">{discovering ? "Search suggested sources" : "Search sources"}</span>
           <input
             type="search"
-            placeholder="Search sources"
+            placeholder={discovering ? "Search suggested sources" : "Search sources"}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
+        {!discovering && <button className="button secondary compact" onClick={() => setEditing(null)}>
+          Add source
+        </button>}
+      </div>
+
+      {displayedSources.length > 0 && (<>
         <div className="source-filters" role="group" aria-label="Filter sources">
           <label className="select-field">
             <select aria-label="Source tag" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
@@ -181,13 +205,13 @@ export function SourcesPanel({
               {tags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
             </select>
           </label>
-          <label className="select-field">
+          {!discovering && <label className="select-field">
             <select aria-label="Subscription" value={subscription} onChange={(event) => setSubscription(event.target.value as SubscriptionFilter)}>
               <option value="all">All subscriptions</option>
               <option value="subscribed">Subscribed</option>
               <option value="not-subscribed">Not subscribed</option>
             </select>
-          </label>
+          </label>}
         </div>
         <div className="organize-row source-organize" aria-label="Organize sources">
           <div className="organize-control">
@@ -199,7 +223,7 @@ export function SourcesPanel({
               }}>
                 <option value="none">None</option>
                 <option value="tag">Tag</option>
-                <option value="subscription">Subscription</option>
+                {!discovering && <option value="subscription">Subscription</option>}
               </select>
             </label>
           </div>
@@ -207,10 +231,10 @@ export function SourcesPanel({
             <span>Sort</span>
             <label className="select-field compact-select-field">
               <select aria-label="Sort by" value={sort} onChange={(event) => setSort(event.target.value as SourceSort)}>
-                <option value="default">Subscribed</option>
-                <option value="name">Name A–Z</option>
-                <option value="added">Date added</option>
-                <option value="updated">Updated</option>
+                <option value="default">{discovering ? "Name A–Z" : "Subscribed"}</option>
+                {!discovering && <option value="name">Name A–Z</option>}
+                <option value="added">{discovering ? "Latest saved" : "Date added"}</option>
+                <option value="updated">{discovering ? "Latest updated" : "Updated"}</option>
                 <option value="articles">Articles</option>
               </select>
             </label>
@@ -227,10 +251,10 @@ export function SourcesPanel({
       {filtered.length === 0 ? (
         <div className="empty-state source-empty">
           <span className="empty-icon" aria-hidden="true">⌂</span>
-          <h2>{sources.length === 0 ? "No sources yet" : "No sources match"}</h2>
+          <h2>{displayedSources.length === 0 ? (discovering ? "No suggestions yet" : "No sources yet") : "No sources match"}</h2>
           <p>
-            {sources.length === 0
-              ? "Save a site you want to visit independently from individual articles."
+            {displayedSources.length === 0
+              ? (discovering ? "Suggestions appear when your library contains websites not already saved as sources." : "Save a site you want to visit independently from individual articles.")
               : "Try changing your filters or search."}
           </p>
         </div>
@@ -267,45 +291,40 @@ export function SourcesPanel({
             return (
               <article className="source-card" key={source.id}>
                 <div className="source-card-header">
-                  <SourceIcon key={source.url} url={source.url} />
+                  {!discovering && <SourceIcon key={source.url} url={source.url} />}
                   <div className="source-identity">
-                    <h3>{source.name}</h3>
-                    <span>{source.domain}</span>
+                    <h3 title={source.name}>{source.name}</h3>
+                    {!discovering && <span>{source.domain}</span>}
                   </div>
                   {source.subscribed && (
                     <span className="subscription-badge">Subscribed</span>
                   )}
                 </div>
                 {source.note && <p className="source-note">{source.note}</p>}
-                {!!source.tags?.length && <div className="article-tags" aria-label="Tags">
+                {discovering && !!source.tags?.length && <p className="muted">Suggested tags</p>}
+                {!!source.tags?.length && <div className="article-tags" aria-label={discovering ? "Suggested tags" : "Tags"}>
                   {source.tags.map((tag) => <span key={tag}>{tag}</span>)}
                 </div>}
                 <div className="source-meta">
                   {articleCount} saved {articleCount === 1 ? "article" : "articles"}
                 </div>
                 <div className="card-actions">
-                  <button
-                    className="button primary compact"
+                  {discovering ? <button className="button primary compact" onClick={() => {
+                    setAddingCandidate(candidates.find((candidate) => candidate.domain === source.domain));
+                  }}>Add source</button> : <button
+                    className="button secondary compact"
                     onClick={() => void openSource(source)}
                   >
                     Open
-                  </button>
-                  <button
-                    className="button secondary compact"
-                    disabled={articleCount === 0}
-                    onClick={() => onViewArticles(source.domain)}
-                  >
-                    View saved
-                  </button>
-                  <button className="text-button" onClick={() => setEditing(source)}>
-                    Edit
-                  </button>
-                  <button
-                    className="text-button danger-text"
-                    onClick={() => void removeSource(source)}
-                  >
-                    Remove
-                  </button>
+                  </button>}
+                  <CardActionsMenu label={`Actions for source ${source.name}`} actions={[
+                    ...(discovering ? [{ label: "Open", onSelect: () => void openSource(source) }] : []),
+                    { label: "View saved", disabled: articleCount === 0, onSelect: () => onViewArticles(source.domain) },
+                    ...(!discovering ? [
+                      { label: "Edit", onSelect: () => setEditing(source) },
+                      { label: "Remove", danger: true, onSelect: () => void removeSource(source) }
+                    ] : [])
+                  ]} />
                 </div>
               </article>
             );
@@ -320,6 +339,16 @@ export function SourcesPanel({
         <SourceEditor
           source={editing}
           onClose={() => setEditing(undefined)}
+          onSave={saveSource}
+          availableTags={availableTags}
+        />
+      )}
+      {addingCandidate && (
+        <SourceEditor
+          source={null}
+          initial={{ name: addingCandidate.domain, url: addingCandidate.url }}
+          suggestedTags={addingCandidate.suggestedTags}
+          onClose={() => setAddingCandidate(undefined)}
           onSave={saveSource}
           availableTags={availableTags}
         />

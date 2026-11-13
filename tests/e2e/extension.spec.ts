@@ -1,4 +1,4 @@
-import { chromium, expect, test, type Dialog } from "@playwright/test";
+import { chromium, expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -82,8 +82,8 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await expect(page.getByRole("status")).toBeVisible();
     await page.clock.fastForward(1100);
     await expect(page.getByRole("status")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "First test article" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Second test article" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "First test article", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Second test article", exact: true })).toBeVisible();
     await expect(page.locator(".article-tags").getByText("Ready E2E", { exact: true })).toHaveCount(2);
     await expect(page.locator(".article-tags").getByText("Nested", { exact: true })).toHaveCount(1);
     await expect(page.getByLabel("Tag", { exact: true })).toBeVisible();
@@ -92,20 +92,20 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     const unreadGroup = page.getByRole("button", { name: /Unread\s*2/ });
     await unreadGroup.click();
     await expect(unreadGroup).toHaveAttribute("aria-expanded", "false");
-    await expect(page.getByRole("button", { name: "First test article" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "First test article", exact: true })).toBeHidden();
     await unreadGroup.click();
     await expect(unreadGroup).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByRole("button", { name: "First test article" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "First test article", exact: true })).toBeVisible();
 
     const firstArticleCard = page.locator(".article-card").filter({
-      has: page.getByRole("button", { name: "First test article" })
+      has: page.getByRole("button", { name: "First test article", exact: true })
     });
     const searchIcon = page.locator(".search-box .search-icon");
     await expect(searchIcon).toHaveAttribute("aria-hidden", "true");
     expect(await searchIcon.boundingBox()).toMatchObject({ width: 16, height: 16 });
     for (const colorScheme of ["dark", "light"] as const) {
       await page.emulateMedia({ colorScheme });
-      const title = firstArticleCard.getByRole("button", { name: "First test article" });
+      const title = firstArticleCard.getByRole("button", { name: "First test article", exact: true });
       await title.hover();
       const textColors = await firstArticleCard.evaluate((card) => {
         const luminance = (color: string) => {
@@ -115,9 +115,11 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
           });
           return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
         };
-        const background = luminance(getComputedStyle(card).backgroundColor);
-        return Array.from(card.querySelectorAll(".article-title, .text-button")).map((element) => {
-          const foreground = luminance(getComputedStyle(element).color);
+        return Array.from(card.querySelectorAll(".article-title, .card-actions > .button")).map((element) => {
+          const styles = getComputedStyle(element);
+          const background = luminance(styles.backgroundColor === "rgba(0, 0, 0, 0)"
+            ? getComputedStyle(card).backgroundColor : styles.backgroundColor);
+          const foreground = luminance(styles.color);
           return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
         });
       });
@@ -157,7 +159,21 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await readingPage.close();
     await page.bringToFront();
     await expect(page.locator(".current-page-badge")).toHaveCount(0);
-    await firstArticleCard.getByRole("button", { name: "Edit tags" }).click();
+    await expect(page.getByRole("main", { name: "Articles", exact: true })).toBeVisible();
+    await expect(page.locator("main > .section-heading")).toHaveCount(0);
+    const articleActions = firstArticleCard.getByRole("button", { name: /^Actions for article/ });
+    await articleActions.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(firstArticleCard.getByRole("menuitem", { name: "Edit tags" })).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(firstArticleCard.getByRole("menuitem", { name: "Remove", exact: true })).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(firstArticleCard.getByRole("menuitem", { name: "Edit tags" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(firstArticleCard.getByRole("menu")).not.toBeVisible();
+    await expect(articleActions).toBeFocused();
+    await articleActions.click();
+    await firstArticleCard.getByRole("menuitem", { name: "Edit tags" }).click();
     const tagDialog = page.getByRole("dialog", { name: "Edit tags", exact: true });
     await tagDialog.getByRole("button", { name: "Nested", exact: true }).click();
     await tagDialog.getByRole("button", { name: "Remove tag Nested", exact: true }).click();
@@ -166,12 +182,14 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await tagDialog.getByLabel("Find or create tag").press("Enter");
     await tagDialog.getByRole("button", { name: "Save tags" }).click();
     await expect(firstArticleCard.getByText("Manual", { exact: true })).toBeVisible();
-    await firstArticleCard.getByRole("button", { name: "Edit tags" }).click();
+    await articleActions.click();
+    await firstArticleCard.getByRole("menuitem", { name: "Edit tags" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Remove tag Manual" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(firstArticleCard.getByText("Manual", { exact: true })).toBeVisible();
 
-    await firstArticleCard.getByRole("button", { name: "Add source" }).click();
+    await articleActions.click();
+    await firstArticleCard.getByRole("menuitem", { name: "Add source" }).click();
     const sourceDialog = page.getByRole("dialog", { name: "Add source" });
     await expect(sourceDialog.getByLabel("Website URL")).toHaveValue("https://example.com");
     await expect(sourceDialog.getByLabel(/Name/)).toHaveValue("example.com");
@@ -186,7 +204,10 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await expect(page.getByRole("status")).toContainText("Source added");
     await page.getByRole("button", { name: "Dismiss notification" }).click();
     await expect(page.getByRole("status")).toHaveCount(0);
-    await firstArticleCard.getByRole("button", { name: "View source" }).click();
+    await articleActions.click();
+    await firstArticleCard.getByRole("menuitem", { name: "View source" }).click();
+    await expect(page.getByRole("main", { name: "Sources", exact: true })).toBeVisible();
+    await expect(page.locator("main > .section-heading")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Example Weekly" })).toBeVisible();
     await expect(page.locator(".subscription-badge")).toHaveText("Subscribed");
     await expect(page.locator(".source-card .article-tags")).toHaveText("ManualPublications");
@@ -233,6 +254,17 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     expect(new Set(sourceColumns.map(({ y }) => y)).size).toBe(1);
     expect(sourceColumns[1].x).toBeGreaterThan(sourceColumns[0].x);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const kanbanSource = page.locator(".source-card").first();
+    await kanbanSource.getByRole("button", { name: /^Actions for source/ }).click();
+    await expect(kanbanSource.getByRole("menuitem", { name: "View saved" })).toBeVisible();
+    const menuBounds = await kanbanSource.getByRole("menu").boundingBox();
+    expect(menuBounds).not.toBeNull();
+    expect(menuBounds!.x).toBeGreaterThanOrEqual(12);
+    expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(308);
+    expect(menuBounds!.y).toBeGreaterThanOrEqual(12);
+    expect(menuBounds!.y + menuBounds!.height).toBeLessThanOrEqual(788);
+    await page.getByLabel("Search sources").click();
+    await expect(kanbanSource.getByRole("menu")).not.toBeVisible();
     await page.getByRole("button", { name: "Move Publications earlier", exact: true }).click();
     await expect(page.locator(".group-heading h2")).toHaveText(["Publications", "Manual", "Untagged"]);
     await page.getByRole("button", { name: "List", exact: true }).click();
@@ -247,6 +279,14 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
       expect(sourceStyles).toEqual(scheme === "dark"
         ? { color: "rgb(198, 195, 255)", background: "rgb(59, 57, 91)" }
         : { color: "rgb(81, 77, 159)", background: "rgb(238, 237, 251)" });
+      const card = page.locator(".source-card").first();
+      await card.getByRole("button", { name: /^Actions for source/ }).click();
+      const menu = card.getByRole("menu");
+      await expect(menu).toBeVisible();
+      expect(await menu.evaluate((element) => getComputedStyle(element).backgroundColor))
+        .toBe(scheme === "dark" ? "rgb(43, 43, 48)" : "rgb(255, 255, 255)");
+      expect(await menu.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.keyboard.press("Escape");
       const clippedOptions = await page.locator(".organize-row select, .source-filters select").evaluateAll((selects) =>
         selects.flatMap((element) => {
           const select = element as HTMLSelectElement;
@@ -263,7 +303,18 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
       expect(clippedOptions).toEqual([]);
     }
     await page.getByLabel("Group by").selectOption("none");
-    await page.locator(".source-card").filter({ hasText: "Manual source" }).getByRole("button", { name: "Edit", exact: true }).click();
+    const manualSource = page.locator(".source-card").filter({ hasText: "Manual source" });
+    const manualActions = manualSource.getByRole("button", { name: /^Actions for source/ });
+    await manualActions.focus();
+    await page.keyboard.press("ArrowUp");
+    await expect(manualSource.getByRole("menuitem", { name: "Remove", exact: true })).toBeFocused();
+    await expect(manualSource.getByRole("menuitem", { name: "View saved" })).toBeDisabled();
+    await page.keyboard.press("Home");
+    await expect(manualSource.getByRole("menuitem", { name: "Edit", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(manualSource.getByRole("menu")).not.toBeVisible();
+    await manualActions.click();
+    await manualSource.getByRole("menuitem", { name: "Edit", exact: true }).click();
     const editSourceDialog = page.getByRole("dialog", { name: "Edit source" });
     await editSourceDialog.getByRole("button", { name: "Publications", exact: true }).click();
     await editSourceDialog.getByRole("button", { name: "Save changes" }).click();
@@ -275,7 +326,7 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await page.getByLabel("Group by").selectOption("none");
     await page.getByRole("button", { name: "Tags", exact: true }).click();
     const sourceOnlyTag = page.locator(".tag-directory-item").filter({ hasText: "Publications" });
-    await expect(sourceOnlyTag.getByRole("button", { name: "View articles tagged Publications", exact: true })).toBeDisabled();
+    await expect(sourceOnlyTag.getByRole("button", { name: "View articles tagged Publications", exact: true })).toHaveCount(0);
     await expect(sourceOnlyTag).toContainText("2 sources");
     await sourceOnlyTag.getByRole("button", { name: "View sources tagged Publications", exact: true }).click();
     await expect(page.getByLabel("Source tag")).toHaveValue("Publications");
@@ -285,9 +336,10 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     const importedSourceCard = page.locator(".source-card").filter({
       has: page.getByRole("heading", { name: "Example Weekly" })
     });
-    await importedSourceCard.getByRole("button", { name: "View saved" }).click();
-    await expect(page.getByRole("button", { name: "First test article" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Second test article" })).toBeVisible();
+    await importedSourceCard.getByRole("button", { name: /^Actions for source/ }).click();
+    await importedSourceCard.getByRole("menuitem", { name: "View saved" }).click();
+    await expect(page.getByRole("button", { name: "First test article", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Second test article", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Link" }).click();
     await page.getByLabel("Show").selectOption("linked");
@@ -296,13 +348,13 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await page.getByRole("button", { name: "Close", exact: true }).click();
 
     await page.getByRole("button", { name: "Tags", exact: true }).click();
-    await expect(page.locator(".tag-directory-item")).toHaveCount(4);
+    await expect(page.locator(".tag-directory-item")).toHaveCount(3);
     await expect(page.locator(".tag-directory-item").filter({ hasText: "Ready E2E" })).toContainText("2 articles");
     for (const colorScheme of ["dark", "light"] as const) {
       await page.emulateMedia({ colorScheme });
       await page.getByRole("button", { name: "Tags", exact: true }).click();
       await page.keyboard.press("Tab");
-      const sourcesTab = page.getByRole("button", { name: /^Sources/ });
+      const sourcesTab = page.getByRole("button", { name: "Discover", exact: true });
       await expect(sourcesTab).toBeFocused();
       await expect(sourcesTab).toHaveCSS("outline-style", "solid");
       await expect(sourcesTab).toHaveCSS("outline-width", "2px");
@@ -396,34 +448,33 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await page.getByLabel("Tag", { exact: true }).selectOption("");
     await page.getByLabel("Group by").selectOption("status");
     await page.getByLabel("Select all visible articles").check();
-    page.once("dialog", (dialog) => dialog.dismiss());
     await bulk.getByRole("button", { name: "Remove selected" }).click();
+    const removalDialog = page.getByRole("dialog", { name: "Remove from Ready?" });
+    await expect(removalDialog.getByRole("checkbox")).not.toBeChecked();
+    await removalDialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page.locator(".article-card")).toHaveCount(2);
-    const keepFavorites = (dialog: Dialog) => dialog.message().startsWith("Also delete")
-      ? dialog.dismiss()
-      : dialog.accept();
-    page.on("dialog", keepFavorites);
     await bulk.getByRole("button", { name: "Remove selected" }).click();
+    await removalDialog.getByRole("button", { name: "Remove from Ready", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("2 articles removed");
-    page.off("dialog", keepFavorites);
     await expect(page.locator(".article-card")).toHaveCount(0);
     expect(await page.evaluate(async () => (await chrome.bookmarks.search({ url: "https://example.com/first" })).length)).toBe(1);
     await page.reload();
     await expect(page.getByText("Your library is ready")).toBeVisible();
     await page.getByRole("button", { name: "Tags", exact: true }).click();
+    await expect(page.locator(".tag-directory-item")).toHaveCount(0);
+    await page.getByRole("button", { name: /^Sources/ }).click();
+    await page.getByRole("button", { name: "Tags", exact: true }).click();
     await expect(page.locator(".tag-directory-item")).toHaveCount(2);
-    await expect(page.getByRole("button", { name: "View articles tagged Manual", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "View sources tagged Manual", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: /^Library/ }).click();
     await page.getByRole("button", { name: "Link", exact: true }).click();
     await page.getByRole("checkbox", { name: "Select Ready E2E" }).check();
     await page.getByRole("button", { name: "Link selected" }).click();
     await page.getByLabel("Select all visible articles").check();
-    const deleteFavorites = (dialog: Dialog) => dialog.accept();
-    page.on("dialog", deleteFavorites);
     await bulk.getByRole("button", { name: "Remove selected" }).click();
+    await removalDialog.getByRole("checkbox").check();
+    await removalDialog.getByRole("button", { name: "Remove from Ready", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("2 articles removed");
-    page.off("dialog", deleteFavorites);
     expect(await page.evaluate(async () => (await chrome.bookmarks.search({ url: "https://example.com/first" })).length)).toBe(0);
     expect(await page.evaluate(async () => (await chrome.bookmarks.search({ url: "https://example.com/second" })).length)).toBe(0);
 
@@ -482,6 +533,141 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     expect((await saveAt("https://example.com/reset-save")).ok).toBe(true);
     expect(await page.evaluate(async () => (await chrome.bookmarks.search({ title: "Ready" })).length)).toBe(1);
     await destinationPage.close();
+  } finally {
+    await context.close();
+    await rm(userDataDir, { recursive: true, force: true });
+  }
+});
+
+test("moves Favorites, discovers local sources, and preserves statistics through optional cleanup and backup", async () => {
+  const extensionPath = path.resolve("dist");
+  const userDataDir = await mkdtemp(path.join(os.tmpdir(), "ready-history-"));
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    headless: false,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`]
+  });
+  try {
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto(`chrome-extension://${unpackedExtensionId(extensionPath)}/sidebar.html`);
+    const favorites = await page.evaluate(async () => {
+      const reading = await chrome.bookmarks.create({ title: "Reading" });
+      const archive = await chrome.bookmarks.create({ title: "Archive" });
+      const first = await chrome.bookmarks.create({ parentId: reading.id, title: "First", url: "https://example.com/first" });
+      const second = await chrome.bookmarks.create({ parentId: reading.id, title: "Second", url: "https://example.com/second" });
+      return { reading, archive, first, second };
+    });
+    const timestamp = Date.now() - 60_000;
+    const records = ["first", "second", "unread", "progress"].map((id, index) => ({
+      id, title: id, originalUrl: `https://example.com/${id}`, normalizedUrl: `https://example.com/${id}`,
+      domain: "example.com", tags: ["Manual"], originalSavedAt: timestamp,
+      createdAt: timestamp, updatedAt: timestamp + index,
+      completedAt: index < 2 ? timestamp + index : undefined,
+      status: index < 2 ? "read" : index === 2 ? "unread" : "in_progress", progress: index < 2 ? 1 : 0.3
+    }));
+    const backup = {
+      schemaVersion: 2, exportedAt: new Date().toISOString(), articles: records, annotations: [], sources: [],
+      sessions: records.slice(0, 2).map((article, index) => ({
+        id: `session-${article.id}`, articleId: article.id, startedAt: timestamp,
+        endedAt: timestamp + 1_000, activeSeconds: index === 0 ? 20 : 10, startProgress: 0, endProgress: 1
+      }))
+    };
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByLabel("Import JSON file").setInputFiles({
+      name: "history.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(backup))
+    });
+    await page.getByRole("button", { name: "Apply import", exact: true }).click();
+    await expect(page.getByText("Imported 4 new articles", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: /^Library/ }).click();
+    const first = page.locator(".article-card").filter({ has: page.getByLabel("Status for first", { exact: true }) });
+    await expect(first.locator(".bookmark-folder-path")).toContainText("Reading");
+    const actions = first.getByRole("button", { name: "Actions for article first", exact: true });
+    await actions.click();
+    await first.getByRole("menuitem", { name: "Move Favorite", exact: true }).click();
+    const picker = page.getByRole("dialog", { name: "Move Favorite", exact: true });
+    await expect(picker.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await expect(picker).not.toBeVisible();
+    await expect(actions).toBeFocused();
+    await actions.click();
+    await first.getByRole("menuitem", { name: "Move Favorite", exact: true }).click();
+    await picker.getByRole("radio", { name: "Select Archive", exact: true }).check();
+    await picker.getByRole("button", { name: "Move here", exact: true }).click();
+    await expect(first.locator(".bookmark-folder-path")).toContainText("Archive");
+    await expect(first.locator(".article-tags")).toHaveText("Manual");
+    expect(await page.evaluate(async (id) => (await chrome.bookmarks.get(id))[0].parentId, favorites.first.id)).toBe(favorites.archive.id);
+    await page.evaluate(async (id) => { await chrome.bookmarks.update(id, { title: "Finished" }); }, favorites.archive.id);
+    await expect(first.locator(".bookmark-folder-path")).toContainText("Finished");
+    await first.getByLabel("Status for first", { exact: true }).selectOption("unread");
+    await first.getByLabel("Status for first", { exact: true }).selectOption("read");
+    await expect(page.getByRole("button", { name: "Remove from list", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Keep in list", exact: true }).click();
+    await page.evaluate(async (id) => { await chrome.bookmarks.remove(id); }, favorites.first.id);
+    await expect(first.getByText("Not linked to Edge Favorites", { exact: true })).toBeVisible();
+    await actions.click();
+    await first.getByRole("menuitem", { name: "Restore or relink Favorite", exact: true }).click();
+    const restore = page.getByRole("dialog", { name: "Restore or relink Favorite", exact: true });
+    await restore.getByRole("radio", { name: "Select Reading", exact: true }).check();
+    await restore.getByRole("button", { name: "Use folder", exact: true }).click();
+    await expect(first.getByText("Linked to Edge Favorites", { exact: true })).toBeVisible();
+    await expect(first.getByLabel("Status for first", { exact: true })).toHaveValue("read");
+
+    await page.getByRole("button", { name: /^Sources/ }).click();
+    await page.getByRole("button", { name: "Discover", exact: true }).click();
+    await expect(page.locator(".source-card")).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: "example.com", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const settingsGap = await page.locator(".settings-preferences > .settings-card").evaluateAll((cards) =>
+      cards[1].getBoundingClientRect().top - cards[0].getBoundingClientRect().bottom);
+    expect(settingsGap).toBe(14);
+    await expect(page.getByRole("checkbox", { name: "Automatically clean up read articles" })).not.toBeChecked();
+    await expect(page.getByRole("spinbutton", { name: "Read articles to keep" })).toHaveValue("100");
+    await page.getByRole("checkbox", { name: "Automatically clean up read articles" }).check();
+    await page.getByRole("spinbutton", { name: "Read articles to keep" }).fill("1");
+    await page.getByRole("button", { name: "Save automation", exact: true }).click();
+    await expect(page.getByText("Automation enabled. 1 read articles", { exact: false })).toBeVisible();
+    expect(await page.evaluate(async (id) => (await chrome.bookmarks.get(id)).length, favorites.second.id)).toBe(1);
+    await page.getByRole("button", { name: /^Library/ }).click();
+    await expect(page.locator(".article-card")).toHaveCount(3);
+    await expect(page.getByLabel("Status for unread", { exact: true })).toHaveValue("unread");
+    await expect(page.getByLabel("Status for progress", { exact: true })).toHaveValue("in_progress");
+    await page.getByRole("button", { name: "Statistics", exact: true }).click();
+    await expect(page.getByText("Recorded active time:", { exact: false })).toContainText("30s");
+    await expect(page.getByText("Recorded reads: 2 (1 archived)", { exact: true })).toBeVisible();
+    await page.getByText("Archived articles (1)", { exact: true }).click();
+    await expect(page.getByText(`Historical Favorite reference: ${favorites.second.id}`, { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export all", exact: true }).click();
+    const download = await downloadPromise;
+    const stream = await download.createReadStream();
+    let json = "";
+    for await (const chunk of stream) json += chunk.toString();
+    const exported = JSON.parse(json);
+    expect(exported.articles).toHaveLength(3);
+    expect(exported.readingHistory).toHaveLength(1);
+    expect(exported.readingHistory[0].id).toBe("second");
+    expect(exported.readingHistory[0].bookmarkId).toBeUndefined();
+    expect(exported.sessions).toHaveLength(2);
+    const lateUpdate = await page.evaluate(async () => chrome.runtime.sendMessage({
+      type: "SAVE_READING_UPDATE", articleId: "second", progress: 1, activeSeconds: 12,
+      session: {
+        id: "session-second", articleId: "second", startedAt: Date.now() - 12_000,
+        endedAt: Date.now(), activeSeconds: 12, startProgress: 0, endProgress: 1
+      }
+    }));
+    expect(lateUpdate.ok).toBe(true);
+    await page.getByLabel("Import JSON file").setInputFiles({
+      name: "restore.json", mimeType: "application/json", buffer: Buffer.from(json)
+    });
+    await page.getByRole("button", { name: "Apply import", exact: true }).click();
+    await expect(page.getByText("Imported 0 new articles", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: /^Library/ }).click();
+    await page.getByRole("button", { name: "Statistics", exact: true }).click();
+    await expect(page.getByText("Recorded active time:", { exact: false })).toContainText("32s");
+    await expect(page.getByText("Recorded reads: 2 (1 archived)", { exact: true })).toBeVisible();
   } finally {
     await context.close();
     await rm(userDataDir, { recursive: true, force: true });

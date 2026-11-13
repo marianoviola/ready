@@ -33,6 +33,11 @@ export interface Article {
   createdAt: number;
   updatedAt: number;
   lastReadAt?: number;
+  completedAt?: number;
+}
+
+export interface ReadingHistoryEntry extends Article {
+  archivedAt: number;
 }
 
 export interface Source {
@@ -104,6 +109,7 @@ export interface ReadyBackup {
   annotations: Annotation[];
   sessions: ReadingSession[];
   sources: Source[];
+  readingHistory?: Array<Omit<ReadingHistoryEntry, "bookmarkId" | "bookmarkState">>;
 }
 
 export interface ImportPreview {

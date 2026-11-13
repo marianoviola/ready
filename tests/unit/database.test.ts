@@ -9,19 +9,45 @@ afterEach(async () => {
 });
 
 describe("database schema", () => {
-  it("opens version 2 with all recoverable data stores", async () => {
+  it("opens version 3 with all recoverable data stores", async () => {
     const name = `ready-test-${crypto.randomUUID()}`;
     names.push(name);
     const database = new ReadyDatabase(name);
     await database.open();
-    expect(database.verno).toBe(2);
+    expect(database.verno).toBe(3);
     expect(database.tables.map((table) => table.name).sort()).toEqual([
       "annotations",
       "articles",
       "ignoredRecommendations",
+      "readingHistory",
       "sessions",
       "sources"
     ]);
+    database.close();
+  });
+
+  it("adds history without losing version 2 articles, sources or sessions", async () => {
+    const name = `ready-history-migration-${crypto.randomUUID()}`;
+    names.push(name);
+    const legacy = new Dexie(name);
+    legacy.version(2).stores({
+      articles: "id, bookmarkId, bookmarkState, normalizedUrl, canonicalUrl, status, domain, originalSavedAt, lastReadAt, updatedAt",
+      annotations: "id, articleId, unresolved, updatedAt",
+      sessions: "id, articleId, startedAt, endedAt",
+      ignoredRecommendations: "[articleId+category], articleId, category, ignoredAt",
+      sources: "id, &normalizedUrl, domain, subscribed, updatedAt"
+    });
+    await legacy.table("articles").add({ id: "article", status: "read", updatedAt: 123 });
+    await legacy.table("sessions").add({ id: "session", articleId: "article", activeSeconds: 100 });
+    await legacy.table("sources").add({ id: "source", normalizedUrl: "https://example.com/" });
+    legacy.close();
+    const database = new ReadyDatabase(name);
+    await database.open();
+    expect(await database.articles.get("article")).toMatchObject({ status: "read", updatedAt: 123 });
+    expect(await database.sessions.get("session")).toMatchObject({ activeSeconds: 100 });
+    expect(await database.sources.count()).toBe(1);
+    expect(await database.readingHistory.count()).toBe(0);
+    expect(database.articles.schema.indexes.some((index) => index.name === "completedAt")).toBe(true);
     database.close();
   });
 

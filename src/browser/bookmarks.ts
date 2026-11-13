@@ -1,9 +1,90 @@
 import { db } from "../db/database";
 import { bookmarkTagsById } from "../domain/bookmark-tree";
 import { mergeTags } from "../domain/tags";
+import { archiveReadingHistory, findReadingHistoryMatch, restoreReadingHistory } from "../domain/reading-history";
 import type { Article, BookmarkNode } from "../domain/types";
 import { getDomain, normalizeUrl, urlsMatch } from "../domain/url";
 import { getBookmarkDestination, resolveBookmarkDestination } from "./bookmark-destination";
+
+export interface BookmarkMetadata {
+  articleId: string;
+  state: Article["bookmarkState"];
+  bookmarkId?: string;
+  folderId?: string;
+  folderPath: string[];
+}
+
+export function bookmarkMetadataForArticle(
+  article: Article,
+  tree: BookmarkNode[]
+): BookmarkMetadata {
+  function locate(nodes: BookmarkNode[], path: string[]): BookmarkMetadata | undefined {
+    for (const node of nodes) {
+      if (node.id === article.bookmarkId && node.url && urlsMatch(node.url, article.originalUrl)) {
+        return {
+          articleId: article.id,
+          state: "linked",
+          bookmarkId: node.id,
+          folderId: node.parentId,
+          folderPath: path
+        };
+      }
+      const found = node.children && locate(
+        node.children,
+        node.parentId === undefined ? path : [...path, node.title || "Favorites"]
+      );
+      if (found) return found;
+    }
+    return undefined;
+  }
+  return locate(tree, []) ?? { articleId: article.id, state: "orphaned", folderPath: [] };
+}
+
+/** Reconcile IDs against a single live snapshot; a changed URL must never relink an article. */
+export async function getBookmarkMetadata(): Promise<BookmarkMetadata[]> {
+  const tree = await chrome.bookmarks.getTree();
+  return db.transaction("rw", db.articles, async () => {
+    const articles = await db.articles.toArray();
+    const metadata = articles.map((article) => bookmarkMetadataForArticle(article, tree));
+    for (const [index, item] of metadata.entries()) {
+      const article = articles[index];
+      if (article.bookmarkState !== item.state || article.bookmarkId !== item.bookmarkId) {
+        await db.articles.update(article.id, {
+          bookmarkId: item.bookmarkId,
+          bookmarkState: item.state,
+          updatedAt: Date.now()
+        });
+      }
+    }
+    return metadata;
+  });
+}
+
+export async function moveBookmark(
+  articleId: string,
+  folderId: string
+): Promise<{ article: Article; bookmarkMetadata: BookmarkMetadata }> {
+  const article = await db.articles.get(articleId);
+  if (!article) throw new Error("The article no longer exists.");
+  if (!folderId) throw new Error("Choose a destination folder.");
+  const tree = await chrome.bookmarks.getTree();
+  const metadata = bookmarkMetadataForArticle(article, tree);
+  if (!metadata.bookmarkId) {
+    await markBookmarkOrphaned(article.bookmarkId ?? "");
+    throw new Error("This Favorite is no longer linked. Restore it before moving it.");
+  }
+  // An explicit destination validates the folder without changing saved settings.
+  await resolveBookmarkDestination(folderId);
+  await chrome.bookmarks.move(metadata.bookmarkId, { parentId: folderId });
+  const latest = await db.articles.get(articleId);
+  if (!latest) throw new Error("The article no longer exists.");
+  const bookmarkMetadata = bookmarkMetadataForArticle(latest, await chrome.bookmarks.getTree());
+  if (bookmarkMetadata.state !== "linked") {
+    await markBookmarkOrphaned(metadata.bookmarkId);
+    throw new Error("The Favorite changed while it was being moved. Restore it to reconnect.");
+  }
+  return { article: latest, bookmarkMetadata };
+}
 
 export async function getBookmarkTree(): Promise<BookmarkNode[]> {
   const [tree, articles] = await Promise.all([
@@ -44,7 +125,7 @@ export async function linkBookmarks(bookmarkIds: string[]): Promise<number> {
       continue;
     }
 
-    await db.articles.add(articleFromBookmark(bookmark, undefined, inheritedTags));
+    await activateLinkedArticle(articleFromBookmark(bookmark, undefined, inheritedTags));
     linked += 1;
   }
   return linked;
@@ -80,8 +161,7 @@ export async function saveActivePage(folderId?: string): Promise<{
     }));
 
   const tags = (await inheritedBookmarkTags()).get(bookmark.id) ?? [];
-  const article = articleFromBookmark(bookmark, tab.title, tags);
-  await db.articles.add(article);
+  const article = await activateLinkedArticle(articleFromBookmark(bookmark, tab.title, tags));
   return { article, createdBookmark: matchingBookmarks.length === 0 };
 }
 
@@ -101,15 +181,20 @@ export async function restoreBookmark(
       url: article.originalUrl
     }));
 
-  const updated: Article = {
-    ...article,
-    bookmarkId: bookmark.id,
-    bookmarkState: "linked",
-    tags: mergeTags(article.tags, (await inheritedBookmarkTags()).get(bookmark.id) ?? []),
-    updatedAt: Date.now()
-  };
-  await db.articles.put(updated);
-  return updated;
+  const tags = (await inheritedBookmarkTags()).get(bookmark.id) ?? [];
+  return db.transaction("rw", db.articles, async () => {
+    const latest = await db.articles.get(articleId);
+    if (!latest) throw new Error("The article no longer exists.");
+    const updated: Article = {
+      ...latest,
+      bookmarkId: bookmark.id,
+      bookmarkState: "linked",
+      tags: mergeTags(latest.tags, tags),
+      updatedAt: Date.now()
+    };
+    await db.articles.put(updated);
+    return updated;
+  });
 }
 
 export async function removeArticle(
@@ -120,31 +205,69 @@ export async function removeArticle(
   if (!article) throw new Error("The article no longer exists.");
 
   let removedBookmark = false;
-  if (deleteBookmark && article.bookmarkId) {
+  const metadata = deleteBookmark && article.bookmarkId
+    ? bookmarkMetadataForArticle(article, await chrome.bookmarks.getTree())
+    : undefined;
+  if (metadata?.bookmarkId) {
     const referenceCount = await db.articles
       .where("bookmarkId")
-      .equals(article.bookmarkId)
+      .equals(metadata.bookmarkId)
       .count();
     if (referenceCount > 1) {
       throw new Error(
         "This Favorite is linked to another Ready article and was not deleted."
       );
     }
-    await chrome.bookmarks.remove(article.bookmarkId);
-    removedBookmark = true;
+    try {
+      await chrome.bookmarks.remove(metadata.bookmarkId);
+      removedBookmark = true;
+    } catch (error) {
+      // Missing Favorites must not prevent removing Ready's own data.
+      const current = bookmarkMetadataForArticle(article, await chrome.bookmarks.getTree());
+      if (current.bookmarkId) throw error;
+    }
   }
 
   await db.transaction(
     "rw",
-    [db.articles, db.annotations, db.sessions, db.ignoredRecommendations],
+    [db.articles, db.readingHistory, db.annotations, db.sessions, db.ignoredRecommendations],
     async () => {
+      const latest = await db.articles.get(articleId);
+      if (!latest) throw new Error("The article no longer exists.");
+      await archiveReadingHistory({ ...latest, bookmarkId: article.bookmarkId ?? latest.bookmarkId });
       await db.annotations.where("articleId").equals(articleId).delete();
-      await db.sessions.where("articleId").equals(articleId).delete();
       await db.ignoredRecommendations.where("articleId").equals(articleId).delete();
       await db.articles.delete(articleId);
     }
   );
   return removedBookmark;
+}
+
+async function activateLinkedArticle(fresh: Article): Promise<Article> {
+  return db.transaction("rw", db.articles, db.readingHistory, async () => {
+    const active = await db.articles.where("normalizedUrl").equals(fresh.normalizedUrl).first();
+    if (active) return active;
+    const archived = findReadingHistoryMatch(fresh, await db.readingHistory.toArray());
+    if (!archived) {
+      await db.articles.add(fresh);
+      return fresh;
+    }
+    const { archivedAt: _archivedAt, ...history } = archived;
+    const article: Article = {
+      ...history,
+      bookmarkId: fresh.bookmarkId,
+      bookmarkState: "linked",
+      title: fresh.title,
+      originalUrl: fresh.originalUrl,
+      normalizedUrl: fresh.normalizedUrl,
+      domain: fresh.domain,
+      tags: mergeTags(history.tags, fresh.tags ?? []),
+      updatedAt: fresh.updatedAt
+    };
+    await db.articles.put(article);
+    await restoreReadingHistory(article.id);
+    return article;
+  });
 }
 
 export async function markBookmarkOrphaned(bookmarkId: string): Promise<void> {

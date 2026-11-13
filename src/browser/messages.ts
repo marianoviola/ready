@@ -7,9 +7,15 @@ import type {
   ReadingStatus,
   TextAnchor
 } from "../domain/types";
+import type { BookmarkMetadata } from "./bookmarks";
+import type { ReadingRetention } from "./reading-retention";
 
 export type ReadyRequest =
   | { type: "GET_BOOKMARK_TREE" }
+  | { type: "GET_BOOKMARK_METADATA" }
+  | { type: "MOVE_BOOKMARK"; articleId: string; folderId: string }
+  | { type: "SET_READING_RETENTION"; settings: ReadingRetention }
+  | { type: "APPLY_READING_RETENTION" }
   | { type: "LINK_BOOKMARKS"; bookmarkIds: string[] }
   | { type: "SAVE_ACTIVE_PAGE"; folderId?: string }
   | { type: "RESTORE_BOOKMARK"; articleId: string; folderId?: string }
@@ -45,9 +51,12 @@ export type ReadyRequest =
 
 export type ReadyResponse =
   | { ok: true; bookmarkTree: BookmarkNode[] }
+  | { ok: true; bookmarks: BookmarkMetadata[] }
+  | { ok: true; article: Article; bookmarkMetadata: BookmarkMetadata }
   | { ok: true; linked: number }
   | { ok: true; article: Article; createdBookmark: boolean }
   | { ok: true; removedBookmark: boolean }
+  | { ok: true; removedCount: number }
   | {
       ok: true;
       article?: Article;
