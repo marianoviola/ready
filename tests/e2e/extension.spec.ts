@@ -17,6 +17,7 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
   const extensionPath = path.resolve("dist");
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "ready-playwright-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
+    channel: process.env.READY_E2E_CHANNEL,
     headless: false,
     args: [
       `--disable-extensions-except=${extensionPath}`,
@@ -553,6 +554,7 @@ test("moves Favorites, discovers local sources, and preserves statistics through
   const extensionPath = path.resolve("dist");
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "ready-history-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
+    channel: process.env.READY_E2E_CHANNEL,
     headless: false,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`]
   });

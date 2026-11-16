@@ -25,7 +25,14 @@ test("release ZIP is complete, licensed, versioned and repeatable", async () => 
   }
   const manifest = JSON.parse(readEntry("manifest.json"));
   assert.equal(manifest.version, pkg.version);
-  assert.equal(manifest.version_name, `${pkg.version} beta`);
+  assert.equal(manifest.version_name, pkg.version);
+  assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.homepage_url, pkg.homepage);
+  assert.equal(new URL(manifest.homepage_url).protocol, "https:");
+  assert.ok(!manifest.host_permissions?.length, "Site access must remain optional.");
+  assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"]);
+  assert.equal(manifest.content_security_policy.extension_pages, "script-src 'self'; object-src 'self'");
+  assert.ok(manifest.description.length <= 132, "Store summary exceeds the manifest limit.");
   for (const icon of Object.values(manifest.icons)) assert.ok(entries.includes(icon));
   const html = readEntry("sidebar.html");
   for (const match of html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)) {

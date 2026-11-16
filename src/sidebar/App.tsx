@@ -915,7 +915,7 @@ export function App() {
             <section className="settings-card" aria-label="About Ready">
               <h3>Ready {chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}</h3>
               <p className="muted">A local-first reading library. No account, analytics, or Ready server.</p>
-              <p className="muted">Beta software: export a backup before updating or uninstalling.</p>
+              <p className="muted">Reading data stays in this browser profile. Export a backup before updating, switching installations, or uninstalling.</p>
               <div className="button-row">
                 <a href="https://marianoviola.com/privacy/#ready" target="_blank" rel="noopener noreferrer">Privacy</a>
                 <a href="https://marianoviola.com/contact/" target="_blank" rel="noopener noreferrer">Contact &amp; support</a>
@@ -1113,7 +1113,7 @@ function dateGroup(timestamp: number): string {
   const date = new Date(timestamp);
   const now = new Date();
   if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()) return "This month";
-  if (date.getFullYear() === now.getFullYear()) return date.toLocaleDateString(undefined, { month: "long" });
+  if (date.getFullYear() === now.getFullYear()) return date.toLocaleDateString("en-US", { month: "long" });
   return String(date.getFullYear());
 }
 
@@ -1122,5 +1122,5 @@ function relativeDate(timestamp: number): string {
   if (days <= 0) return "today";
   if (days === 1) return "yesterday";
   if (days < 30) return `${days} days ago`;
-  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric", year: days > 365 ? "numeric" : undefined });
+  return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: days > 365 ? "numeric" : undefined });
 }

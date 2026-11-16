@@ -5,7 +5,7 @@
   "description": "A local-first reading library for Microsoft Edge Favorites.",
   "license": "MIT",
   "author": "Mariano Viola",
-  "homepage": "https://github.com/marianoviola/ready#readme",
+  "homepage": "https://marianoviola.com/",
   "repository": {
     "type": "git",
     "url": "https://github.com/marianoviola/ready.git"
@@ -26,6 +26,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
+    "test:edge": "npm run build && READY_E2E_CHANNEL=msedge playwright test",
+    "store:assets": "node scripts/store-assets.mjs",
     "check": "npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

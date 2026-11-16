@@ -6,9 +6,9 @@
 
 Ready is a local-first Microsoft Edge extension that turns existing Favorites into a private reading library. Edge remains the source of truth for bookmark URLs, titles, folders, creation dates, and native synchronization. Ready stores only reading-specific data in IndexedDB.
 
-**Public beta preparation — 0.1.0.** Ready is not yet a stable release. Keep a JSON
-backup before updating or uninstalling. Source publication, GitHub releases, and
-Edge Add-ons approval are separate steps; this repository does not imply a store listing.
+**Public release candidate — 0.1.0.** Ready is being prepared for Microsoft Edge
+Add-ons. Keep a JSON backup before updating, switching installations, or
+uninstalling. This repository does not imply store approval or an available listing.
 
 [Privacy policy](https://marianoviola.com/privacy/#ready) ·
 [Contact & support](https://marianoviola.com/contact/)
@@ -85,7 +85,9 @@ npm run typecheck    # strict TypeScript validation
 npm test             # Vitest domain and persistence tests
 npm run build        # production extension in dist/
 npm run test:e2e     # build and run Playwright extension integration tests
-npm run package     # build a beta ZIP with licenses and SHA-256 checksum
+npm run package     # build a release ZIP with licenses and SHA-256 checksum
+npm run test:edge   # build and run integration tests in installed Microsoft Edge
+npm run store:assets # capture store images in installed Microsoft Edge (build first)
 npm run test:distribution # verify the generated ZIP (run package first)
 ```
 
@@ -97,8 +99,8 @@ npx playwright install chromium
 
 ## Install in Microsoft Edge
 
-1. Build with `npm run build`, or download an available beta ZIP from
-   [GitHub Releases](https://github.com/marianoviola/ready/releases), verify its
+1. Build with `npm run build`, or download an available release ZIP from
+   [GitHub Releases](https://github.com/marianoviola/ready/releases) if you have repository access, verify its
    checksum, and extract it to a permanent directory.
 2. Open `edge://extensions`.
 3. Enable **Developer mode**.
@@ -144,17 +146,17 @@ On macOS, verify a downloaded pair with `shasum -a 256 -c ready-0.1.0.zip.sha256
 on Linux use `sha256sum -c ready-0.1.0.zip.sha256`.
 
 CI checks types, unit tests, production build, package contents, and headed Chromium
-extension tests under Xvfb. It uploads a beta artifact but does not publish it.
+extension tests under Xvfb. It uploads a release artifact but does not publish it.
 Chromium integration tests do not replace manual testing in Microsoft Edge.
 
 To prepare a GitHub release after review:
 
 1. Keep `package.json`, its lockfile, and `public/manifest.json` versions aligned;
-   update `version_name` for the beta display name.
+   keep `version_name` aligned with the release version.
 2. Commit and push the reviewed changes and an explicit matching tag such as
    `v0.1.0`.
-3. Run **Beta release** in GitHub Actions with that existing tag. It validates the
-   tagged source and creates a **draft prerelease** with ZIP and checksum.
+3. Run **Release candidate** in GitHub Actions with that existing tag. It validates the
+   tagged source and creates a **draft release** with ZIP and checksum.
 4. Inspect the draft, artifacts, and release notes before publishing manually.
    The workflow never publishes a release or submits to a store automatically.
 
@@ -167,7 +169,7 @@ Suggested listing:
 
 - **Name:** Ready
 - **Summary:** Turn Edge Favorites into a private, local-first reading library.
-- **Description:** Organise saved articles with tags, filters, and List or Kanban
+- **Description:** Organize saved articles with tags, filters, and List or Kanban
   groups. Track reading progress, resume where you stopped, and keep highlights
   and notes locally. Link existing Favorites without duplicating them and export
   your reading data as JSON. No account or Ready server.
@@ -188,8 +190,12 @@ Before public distribution:
 - Complete Partner Center's current permissions, privacy, and data-use
   declarations accurately, distinguishing local processing from collection by
   the publisher. Explain each permission using the table below.
-- Upload the ZIP (not its enclosing folder), review the listing and beta status,
+- Upload the ZIP (not its enclosing folder), review the public listing,
   then submit manually. Store acceptance is not guaranteed by these checks.
+
+The complete U.S. English listing, permission justifications, reviewer steps,
+release checklist, and migration instructions are in
+[Publishing to Edge Add-ons](docs/publishing.md).
 
 ## Using the reading layer
 
@@ -351,6 +357,7 @@ Backups use `schemaVersion: 2` and contain:
 - `annotations`, including unresolved annotations.
 - `sessions`.
 - `sources`, including notes and subscription status.
+- `readingHistory` in full backups, including archived article metadata and status.
 - ISO export timestamp.
 
 Imports are validated before writes. Existing articles and Sources are matched by normalized URL, newer metadata wins, the earliest saved date is preserved, and annotations/sessions are remapped to the stable local article ID. Version 1 backups remain importable and are upgraded with an empty Sources list.

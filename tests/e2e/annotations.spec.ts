@@ -15,6 +15,7 @@ test("persists annotations and shows recovery after actual extension invalidatio
   manifest.host_permissions = ["https://example.com/*"];
   await writeFile(manifestPath, JSON.stringify(manifest));
   const context = await chromium.launchPersistentContext(path.join(directory, "profile"), {
+    channel: process.env.READY_E2E_CHANNEL,
     headless: false,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`]
   });

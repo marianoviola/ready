@@ -46,7 +46,7 @@ function safeArticleUrl(url: string): string | undefined {
 export function ReadingStats({ articles, sessions, history = [] }: ReadingStatsProps) {
   const stats = calculateReadingStats(articles, sessions, Date.now(), history);
   const dailyMax = Math.max(1, ...stats.dailyActivity.map((day) => day.activeSeconds));
-  const dateFormat = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const dateFormat = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" });
 
   return (
     <section className="panel-page stats-panel" aria-labelledby="reading-stats-heading">
