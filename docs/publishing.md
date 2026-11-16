@@ -177,7 +177,10 @@ Screenshots are optional (up to six); accepted dimensions are 640 x 480 or
    Verify progress and **Resume**. Select a passage in the article to create a
    highlight and a private note. Reload and verify persistence.
 5. Add tags; exercise Filter, Group, Sort, List, and Kanban. Use **Sources** to
-   create a source manually or from an article. Sources and Discover do not
+   create a source manually, from an article, or with the contextual **Save source**
+   header button for the active website. Confirm the button shows **Page saved**
+   or **Source saved** for an existing item. Saving a source does not create a
+   Favorite or request site access. Sources and Discover do not
    fetch feeds, scrape sites, or call a remote recommendation service.
 6. Mark an article read. Choose **Keep in list** or **Remove from list**.
    Statistics retain its reading history. Favorite deletion is a separate,

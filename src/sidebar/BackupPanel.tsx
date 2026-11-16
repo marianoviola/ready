@@ -17,6 +17,7 @@ import type {
   Source
 } from "../domain/types";
 import { normalizeUrl } from "../domain/url";
+import { useFeedback } from "./Feedback";
 
 interface BackupPanelProps {
   articles: Article[];
@@ -33,8 +34,7 @@ export function BackupPanel({
 }: BackupPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<ImportPreview>();
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const { setMessage, setError } = useFeedback();
   const [busy, setBusy] = useState(false);
 
   async function exportData(selectedOnly: boolean) {
@@ -203,7 +203,6 @@ export function BackupPanel({
         </div>
       </div>
 
-      {error && <p className="error" role="alert">{error}</p>}
       <div className="settings-card">
         <h3>Import JSON</h3>
         <p className="muted">
@@ -244,7 +243,6 @@ export function BackupPanel({
           </div>
         )}
       </div>
-      {message && <p className="success" role="status">{message}</p>}
     </section>
   );
 }

@@ -5,6 +5,8 @@ import { db } from "../../src/db/database";
 import type { Article, Source } from "../../src/domain/types";
 import { SourceDiscover } from "../../src/sidebar/SourceDiscover";
 import { TagDirectory } from "../../src/sidebar/TagDirectory";
+import { FeedbackProvider } from "../../src/sidebar/Feedback";
+import { SourcesPanel } from "../../src/sidebar/SourcesPanel";
 
 const article: Article = {
   id: "a", originalUrl: "https://example.com/story", normalizedUrl: "https://example.com/story",
@@ -20,6 +22,14 @@ let root: Root;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    showModal: { configurable: true, value: vi.fn(function (this: HTMLDialogElement) { this.open = true; }) },
+    close: { configurable: true, value: vi.fn(function (this: HTMLDialogElement) { this.open = false; }) }
+  });
+  Object.defineProperties(HTMLElement.prototype, {
+    showPopover: { configurable: true, value: vi.fn() },
+    hidePopover: { configurable: true, value: vi.fn() }
+  });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -28,18 +38,60 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
+  Reflect.deleteProperty(HTMLElement.prototype, "showPopover");
+  Reflect.deleteProperty(HTMLElement.prototype, "hidePopover");
   vi.unstubAllGlobals();
 });
 
 describe("source discovery UI", () => {
+  it("confirms source removal inside Ready, supports cancellation and retries failures without removing articles", async () => {
+    const changed = vi.fn(async () => {});
+    const remove = vi.spyOn(db.sources, "delete").mockRejectedValueOnce(new Error("Storage unavailable.")).mockResolvedValue();
+    const articleDelete = vi.spyOn(db.articles, "delete");
+    const render = () => createElement(FeedbackProvider, null, createElement(SourcesPanel, {
+      articles: [article], sources: [source], availableTags: ["News"], initialTag: "",
+      onChanged: changed, onViewArticles: vi.fn()
+    }));
+    await act(async () => root.render(render()));
+    async function openRemoval() {
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Actions for source Other"]')!.click());
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+        .find((button) => button.textContent === "Remove")!.click());
+    }
+    await openRemoval();
+    expect(container.querySelector("dialog")?.open).toBe(true);
+    expect(container.querySelector("dialog")?.textContent).toContain("Edge Favorites are kept");
+    expect(remove).not.toHaveBeenCalled();
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>("dialog button")]
+      .find((button) => button.textContent === "Cancel")!.click());
+    expect(container.querySelector("dialog")).toBeNull();
+    expect(remove).not.toHaveBeenCalled();
+    await openRemoval();
+    await act(async () => container.querySelector<HTMLButtonElement>("dialog .danger")!.click());
+    expect(container.querySelector('dialog [role="alert"]')?.textContent).toBe("Storage unavailable.");
+    expect(changed).not.toHaveBeenCalled();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("dialog .danger")!.click();
+      container.querySelector<HTMLButtonElement>("dialog .danger")!.click();
+    });
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(remove).toHaveBeenLastCalledWith(source.id);
+    expect(changed).toHaveBeenCalledOnce();
+    expect(articleDelete).not.toHaveBeenCalled();
+    expect(container.querySelector("dialog")).toBeNull();
+  });
+
   it("uses source controls without subscription controls and confirms suggested tags before saving", async () => {
     let notifyChanged!: () => void;
     const savedPromise = new Promise<void>((resolve) => { notifyChanged = resolve; });
     const changed = vi.fn(async () => { notifyChanged(); });
-    await act(async () => root.render(createElement(SourceDiscover, {
+    await act(async () => root.render(createElement(FeedbackProvider, null, createElement(SourceDiscover, {
       articles: [article], sources: [], availableTags: ["Tech"],
       onChanged: changed, onViewArticles: vi.fn()
-    })));
+    }))));
     expect(container.querySelector('input[placeholder="Search suggested sources"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Subscription"]')).toBeNull();
     expect(container.querySelector("img")).toBeNull();

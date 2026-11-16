@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { sendReadyMessage } from "../browser/messages";
 import { DEFAULT_READING_RETENTION, getReadingRetention } from "../browser/reading-retention";
+import { useFeedback } from "./Feedback";
 
 export function ReadingRetentionSettings({ onChanged }: { onChanged: () => Promise<void> }) {
   const [settings, setSettings] = useState(DEFAULT_READING_RETENTION);
   const [limit, setLimit] = useState(String(DEFAULT_READING_RETENTION.maxReadArticles));
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const { setMessage, setError } = useFeedback();
 
   useEffect(() => {
     let disposed = false;
@@ -57,8 +57,6 @@ export function ReadingRetentionSettings({ onChanged }: { onChanged: () => Promi
         <input type="number" min="1" step="1" value={limit} disabled={loading || pending} onChange={(event) => setLimit(event.target.value)} />
       </label>
       <p className="muted">Disabled by default. Saving with automation enabled also cleans up the current list immediately. Progress and sessions remain in history; highlights and notes are removed with the list item.</p>
-      {error && <p className="error" role="alert">{error}</p>}
-      {message && <p className="success" role="status">{message}</p>}
       <div className="button-row">
         <button type="button" className="button secondary" disabled={loading || pending} onClick={() => void save()}>{pending ? "Saving..." : "Save automation"}</button>
       </div>

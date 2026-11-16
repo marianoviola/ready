@@ -65,6 +65,7 @@ try {
   await expect(page.locator(".import-preview")).toContainText("4 new articles");
   await page.getByRole("button", { name: "Apply import", exact: true }).click();
   await expect(page.getByText("Imported 4 new articles", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss notification", exact: true }).click();
   await mkdir(outputPath, { recursive: true });
   await copyFile(path.join(extensionPath, "icons/ready-128.png"), path.join(outputPath, "logo-128.png"));
   await page.getByRole("button", { name: /^Library/ }).click();

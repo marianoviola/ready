@@ -1,6 +1,6 @@
 import { chromium, expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -50,6 +50,16 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     expect(filterBoxes).toHaveLength(3);
     expect(new Set(filterBoxes.map(({ top }) => top)).size).toBe(1);
     expect(new Set(filterBoxes.map(({ height }) => height))).toEqual(new Set([32]));
+    const chevrons = await page.locator(".select-field, .compact-select-field").evaluateAll((fields) =>
+      fields.map((field) => ({
+        inset: Number.parseFloat(getComputedStyle(field, "::after").right),
+        padding: Number.parseFloat(getComputedStyle(field.querySelector("select")!).paddingRight)
+      })));
+    expect(chevrons.length).toBeGreaterThan(0);
+    for (const chevron of chevrons) {
+      expect(chevron.inset).toBeGreaterThanOrEqual(12);
+      expect(chevron.padding).toBeGreaterThanOrEqual(32);
+    }
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
@@ -88,6 +98,7 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await page.getByRole("button", { name: "Link selected" }).click();
 
     await expect(page.getByRole("status")).toContainText("Linked 2 Favorites");
+    await expect(page.locator(".app-header").getByRole("status")).toContainText("Linked 2 Favorites");
     await page.clock.fastForward(5000);
     await expect(page.getByRole("status")).toBeVisible();
     await page.clock.fastForward(1100);
@@ -144,15 +155,18 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await readingPage.bringToFront();
     await expect(firstArticleCard.getByText("Current page", { exact: true })).toBeVisible();
     await expect(firstArticleCard).toHaveClass(/current-page/);
+    await expect(page.getByRole("button", { name: /Page saved/ })).toBeDisabled();
     await readingPage.goto("https://example.com/second");
     await expect(firstArticleCard.getByText("Current page", { exact: true })).toHaveCount(0);
     await expect(page.locator(".article-card.current-page")).toContainText("Second test article");
     await readingPage.goto("https://example.com/second?chapter=2");
     await expect(page.locator(".current-page-badge")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Save page/ })).toBeEnabled();
     await readingPage.goto("https://example.com/first");
     await expect(firstArticleCard.getByText("Current page", { exact: true })).toBeVisible();
     await page.bringToFront();
     await expect(page.locator(".current-page-badge")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Save page/ })).toBeDisabled();
     await readingPage.bringToFront();
     await expect(firstArticleCard.getByText("Current page", { exact: true })).toBeVisible();
     const otherWindowId = await page.evaluate(async () => {
@@ -458,9 +472,23 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await expect(page.locator(".group-heading h2")).toHaveText(customOrder);
     await page.getByLabel("Tag", { exact: true }).selectOption("");
     await page.getByLabel("Group by").selectOption("status");
+    await page.getByLabel("Website", { exact: true }).selectOption("example.com");
     await page.getByLabel("Select all visible articles").check();
     await bulk.getByRole("button", { name: "Remove selected" }).click();
     const removalDialog = page.getByRole("dialog", { name: "Remove from Ready?" });
+    for (const width of [320, 800]) {
+      await page.setViewportSize({ width, height: 800 });
+      const bounds = await removalDialog.boundingBox();
+      expect(bounds!.width).toBeLessThanOrEqual(440);
+      expect(bounds!.width).toBeLessThan(width - 24);
+      expect(bounds!.height).toBeLessThan(500);
+      const option = await removalDialog.locator(".remove-bookmarks-option").boundingBox();
+      const actions = await removalDialog.locator(".modal-actions").boundingBox();
+      expect(actions!.y - (option!.y + option!.height)).toBeGreaterThanOrEqual(16);
+      await expect(removalDialog.getByRole("button", { name: "Remove from Ready", exact: true })).toBeInViewport();
+      await page.screenshot({ path: test.info().outputPath(`removal-${width}.png`) });
+    }
+    await page.setViewportSize({ width: 320, height: 800 });
     await expect(removalDialog.getByRole("checkbox")).not.toBeChecked();
     await removalDialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page.locator(".article-card")).toHaveCount(2);
@@ -468,6 +496,7 @@ test("links Favorites and manages tags, layouts, bulk actions, and sources", asy
     await removalDialog.getByRole("button", { name: "Remove from Ready", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("2 articles removed");
     await expect(page.locator(".article-card")).toHaveCount(0);
+    await expect(page.getByLabel("Website", { exact: true })).toHaveValue("all");
     expect(await page.evaluate(async () => (await chrome.bookmarks.search({ url: "https://example.com/first" })).length)).toBe(1);
     await page.reload();
     await expect(page.getByText("Your library is ready")).toBeVisible();
@@ -656,6 +685,9 @@ test("moves Favorites, discovers local sources, and preserves statistics through
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: "Export all", exact: true }).click();
     const download = await downloadPromise;
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect(page.locator(".app-header").getByRole("status")).toBeInViewport();
+    await page.screenshot({ path: test.info().outputPath("scrolled-header-feedback.png") });
     const stream = await download.createReadStream();
     let json = "";
     for await (const chunk of stream) json += chunk.toString();
@@ -685,6 +717,116 @@ test("moves Favorites, discovers local sources, and preserves statistics through
   } finally {
     await context.close();
     await rm(userDataDir, { recursive: true, force: true });
+  }
+});
+
+test("saves the active website as a source and keeps contextual saved state in sync", async () => {
+  const directory = await mkdtemp(path.join(await realpath(os.tmpdir()), "ready-contextual-save-"));
+  const extensionPath = path.join(directory, "extension");
+  await cp(path.resolve("dist"), extensionPath, { recursive: true });
+  const manifestPath = path.join(extensionPath, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  // Pregrant only the fixture origins, avoiding browser-chrome permission dialogs.
+  manifest.host_permissions = ["https://example.com/*", "https://www.example.com/*"];
+  await writeFile(manifestPath, JSON.stringify(manifest));
+  const context = await chromium.launchPersistentContext(path.join(directory, "profile"), {
+    channel: process.env.READY_E2E_CHANNEL,
+    headless: false,
+    viewport: { width: 320, height: 800 },
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`]
+  });
+  try {
+    await context.addInitScript(installClassicScrollbars);
+    const page = await context.newPage();
+    await page.goto(`chrome-extension://${unpackedExtensionId(extensionPath)}/sidebar.html`);
+    await page.getByRole("button", { name: /^Sources/ }).click();
+    await context.route(/^https:\/\/(?:www\.)?example\.com\//, (route) =>
+      route.fulfill({ contentType: "text/html", body: "<title>Source test</title><p>Article</p>" }));
+    const articlePage = await context.newPage();
+    await articlePage.goto("https://example.com/story");
+    await articlePage.bringToFront();
+    const save = page.locator(".save-current-page");
+    await expect(save).toContainText("Save source");
+    await expect(save).toBeEnabled();
+    // Keep the article tab active, as it is when using the native sidebar.
+    await save.evaluate((button: HTMLButtonElement) => button.click());
+    await expect(save).toContainText("Source saved");
+    await expect(save).toBeDisabled();
+    const brandBounds = await page.locator(".brand span").boundingBox();
+    const saveBounds = await save.boundingBox();
+    expect(brandBounds!.x + brandBounds!.width).toBeLessThanOrEqual(saveBounds!.x - 12);
+    await expect(page.locator(".source-card")).toHaveCount(1);
+    await expect(page.locator(".app-header").getByRole("status")).toContainText("Source added.");
+    expect(await page.evaluate(async () => (await chrome.bookmarks.search({ url: "https://example.com/" })).length)).toBe(0);
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.screenshot({ path: test.info().outputPath(`source-saved-${colorScheme}.png`) });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    }
+    await articlePage.goto("https://www.example.com/another");
+    await expect(save).toContainText("Source saved");
+    await page.getByRole("button", { name: /^Library/ }).evaluate((button: HTMLButtonElement) => button.click());
+    await expect(save).toContainText("Save page");
+    await expect(save).toBeEnabled();
+    await page.evaluate(() => {
+      const send = chrome.runtime.sendMessage.bind(chrome.runtime);
+      const released = new Promise<void>((resolve) => document.addEventListener("finish-test-save",
+        () => resolve(), { once: true }));
+      chrome.runtime.sendMessage = ((message: { type: string }) => {
+        if (message.type !== "SAVE_ACTIVE_PAGE") return send(message);
+        return Promise.all([send(message), released]).then(([response]) => response);
+      }) as typeof chrome.runtime.sendMessage;
+    });
+    await save.evaluate((button: HTMLButtonElement) => button.click());
+    await expect(save).toHaveAccessibleName("Saving page…");
+    await expect(save.locator(".save-icon")).toHaveAttribute("data-state", "saving");
+    expect(await save.locator(".save-icon").evaluate((icon) => icon.getAnimations({ subtree: true }).length)).toBe(0);
+    await page.evaluate(() => document.dispatchEvent(new Event("finish-test-save")));
+    await expect(save).toContainText("Page saved");
+    await expect(save.locator(".save-icon")).toHaveAttribute("data-state", "saved");
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.mouse.move(0, 0);
+      const colors = await save.evaluate((button) => ({
+        background: getComputedStyle(button).backgroundColor, color: getComputedStyle(button).color
+      }));
+      await save.hover();
+      expect(await save.evaluate((button) => ({
+        background: getComputedStyle(button).backgroundColor, color: getComputedStyle(button).color
+      }))).toEqual(colors);
+      expect(colors.background).toBe(colorScheme === "light" ? "rgb(232, 246, 237)" : "rgb(38, 61, 50)");
+      await page.screenshot({ path: test.info().outputPath(`saved-hover-${colorScheme}.png`) });
+    }
+    await page.getByRole("button", { name: /^Sources/ }).evaluate((button: HTMLButtonElement) => button.click());
+    await expect(save).toContainText("Source saved");
+    await page.getByRole("button", { name: "Actions for source example.com", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Remove", exact: true }).click();
+    const removeSourceDialog = page.getByRole("dialog", { name: "Remove source?", exact: true });
+    await expect(removeSourceDialog).toContainText("Edge Favorites are kept");
+    await expect(removeSourceDialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    const sourceRemovalBounds = await removeSourceDialog.boundingBox();
+    expect(sourceRemovalBounds!.height).toBeLessThan(400);
+    expect(sourceRemovalBounds!.x).toBeGreaterThanOrEqual(16);
+    await page.screenshot({ path: test.info().outputPath("source-removal-dark.png") });
+    await removeSourceDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.locator(".source-card")).toHaveCount(1);
+    await page.getByRole("button", { name: "Actions for source example.com", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Remove", exact: true }).click();
+    await removeSourceDialog.getByRole("button", { name: "Remove source", exact: true }).click();
+    await expect(page.locator(".source-card")).toHaveCount(0);
+    expect(await page.evaluate(async () => (await chrome.bookmarks.search({ url: "https://www.example.com/another" })).length)).toBe(1);
+    await page.getByRole("button", { name: /^Library/ }).click();
+    await expect(page.locator(".article-card")).toHaveCount(1);
+    await page.getByRole("button", { name: /^Sources/ }).click();
+    await articlePage.bringToFront();
+    await expect(save).toContainText("Save source");
+    await expect(save).toBeEnabled();
+    await page.reload();
+    await page.getByRole("button", { name: /^Sources/ }).click();
+    await expect(page.locator(".source-card")).toHaveCount(0);
+  } finally {
+    await context.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

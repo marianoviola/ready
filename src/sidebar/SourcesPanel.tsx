@@ -7,6 +7,8 @@ import { normalizeTags } from "../domain/tags";
 import type { Article, Source } from "../domain/types";
 import { TagPicker, tagsWithQuery } from "./TagPicker";
 import { CardActionsMenu } from "./CardActionsMenu";
+import { useFeedback } from "./Feedback";
+import { RemovalDialog } from "./RemovalDialog";
 
 export interface SourcesPanelProps {
   sources: Source[];
@@ -31,8 +33,10 @@ export function SourcesPanel({
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Source | null>();
   const [addingCandidate, setAddingCandidate] = useState<SourceCandidate>();
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [removing, setRemoving] = useState<Source>();
+  const [removalPending, setRemovalPending] = useState(false);
+  const [removalError, setRemovalError] = useState("");
+  const { setMessage, setError } = useFeedback();
   const [tagFilter, setTagFilter] = useState(initialTag);
   const [subscription, setSubscription] = useState<SubscriptionFilter>("all");
   const [sort, setSort] = useState<SourceSort>("default");
@@ -50,12 +54,6 @@ export function SourcesPanel({
   })) : sources, [candidates, discovering, sources]);
   const tags = useMemo(() => normalizeTags(displayedSources.flatMap((source) => source.tags ?? []))
     .sort((left, right) => left.localeCompare(right)), [displayedSources]);
-
-  useEffect(() => {
-    if (!message) return;
-    const timeout = window.setTimeout(() => setMessage(""), 6000);
-    return () => window.clearTimeout(timeout);
-  }, [message]);
 
   useEffect(() => {
     setTagFilter((current) => tags.find((tag) =>
@@ -147,14 +145,18 @@ export function SourcesPanel({
   }
 
   async function removeSource(source: Source) {
-    if (!window.confirm(`Remove “${source.name}” from Sources?`)) return;
+    setRemovalPending(true);
+    setRemovalError("");
     setError("");
     try {
       await db.sources.delete(source.id);
-      setMessage("Source removed.");
       await onChanged();
+      setRemoving(undefined);
+      setMessage("Source removed.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The source could not be removed.");
+      setRemovalError(reason instanceof Error ? reason.message : "The source could not be removed.");
+    } finally {
+      setRemovalPending(false);
     }
   }
 
@@ -174,9 +176,6 @@ export function SourcesPanel({
         <h2>Discover sources</h2>
         <p className="muted">Websites from your saved articles, suggested on this device.</p>
       </div>}
-
-      {error && <p className="feedback error" role="alert">{error}</p>}
-      {message && <p className="feedback success" role="status">{message}</p>}
 
       <div className="search-row">
         <label className="search-box">
@@ -322,7 +321,7 @@ export function SourcesPanel({
                     { label: "View saved", disabled: articleCount === 0, onSelect: () => onViewArticles(source.domain) },
                     ...(!discovering ? [
                       { label: "Edit", onSelect: () => setEditing(source) },
-                      { label: "Remove", danger: true, onSelect: () => void removeSource(source) }
+                      { label: "Remove", danger: true, onSelect: () => { setRemovalError(""); setRemoving(source); } }
                     ] : [])
                   ]} />
                 </div>
@@ -335,6 +334,11 @@ export function SourcesPanel({
         </div>
       )}
 
+      {removing && <RemovalDialog title="Remove source?" confirmLabel="Remove source"
+        description={<>Remove "{removing.name}" from Sources. Its source notes and tags will be deleted.
+          Saved articles, their tags, reading history, and Edge Favorites are kept.</>}
+        pending={removalPending} error={removalError}
+        onCancel={() => setRemoving(undefined)} onConfirm={() => void removeSource(removing)} />}
       {editing !== undefined && (
         <SourceEditor
           source={editing}

@@ -35,7 +35,7 @@ try {
   entries.push("LICENSE");
 
   const notices = ["Ready bundles the following third-party software under its respective license.\n"];
-  for (const name of ["dexie", "react", "react-dom", "scheduler"]) {
+  for (const name of ["dexie", "react", "react-dom", "scheduler", "tldts", "tldts-core"]) {
     const directory = path.join(root, "node_modules", name);
     const dependency = await readJson(path.join(directory, "package.json"));
     notices.push(`\n--- ${name} ${dependency.version} (${dependency.license}) ---\n`);

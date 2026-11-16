@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { getBookmarkDestination, setBookmarkDestination } from "../browser/bookmark-destination";
 import { BookmarkPicker } from "./BookmarkPicker";
+import { useFeedback } from "./Feedback";
 
 export function BookmarkSettings() {
   const [destination, setDestination] = useState("Loading...");
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState("");
+  const { setError } = useFeedback();
 
   async function load() {
     const [settings, tree] = await Promise.all([
@@ -59,7 +60,6 @@ export function BookmarkSettings() {
           void save().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Bookmark destination could not be saved."));
         }}>Use Ready folder</button>
       </div>
-      {error && <p className="error" role="alert">{error}</p>}
       {choosing && (
         <BookmarkPicker mode="folder" onClose={() => setChoosing(false)} onLinked={async () => {}} onFolderSelected={save} />
       )}

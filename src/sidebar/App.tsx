@@ -8,9 +8,12 @@ import {
   type ArticleSort
 } from "../domain/article-sort";
 import { rankRecommendations } from "../domain/discovery";
+import { sourceFromInput } from "../domain/source";
+import { sourceDomain } from "../domain/source-discovery";
 import { moveGroup, reconcileGroupOrder } from "../domain/group-order";
 import { mergeTags, normalizeTags } from "../domain/tags";
-import { urlsMatch } from "../domain/url";
+import { getDomain, isScriptableUrl, urlsMatch } from "../domain/url";
+import { matchesWebsite, reconcileWebsiteFilter, websiteFamilies } from "../domain/website-filter";
 import type {
   Annotation,
   Article,
@@ -32,6 +35,7 @@ import { BookmarkDetails } from "./BookmarkDetails";
 import { RemoveArticlesDialog } from "./RemoveArticlesDialog";
 import { ReadingRetentionSettings } from "./ReadingRetentionSettings";
 import { CardActionsMenu } from "./CardActionsMenu";
+import { FeedbackMessages, FeedbackProvider, useFeedback } from "./Feedback";
 
 type View = "library" | "tags" | "sources" | "discover" | "backup" | "stats";
 type Workspace = "library" | "sources";
@@ -46,6 +50,10 @@ function readLibrarySnapshot() {
 }
 
 export function App() {
+  return <FeedbackProvider><ReadyApp /></FeedbackProvider>;
+}
+
+function ReadyApp() {
   const headerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>("library");
   const [workspace, setWorkspace] = useState<Workspace>("library");
@@ -79,9 +87,19 @@ export function App() {
   const [removalError, setRemovalError] = useState("");
   const [readArticle, setReadArticle] = useState<Article>();
   const [sourceTagFilter, setSourceTagFilter] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const { setMessage, setError } = useFeedback();
+  const savePendingRef = useRef(false);
+  const [saving, setSaving] = useState<Workspace>();
   const [loading, setLoading] = useState(true);
+  const savingSource = workspace === "sources";
+  const currentPageSaved = isScriptableUrl(activeUrl) && (savingSource
+    ? sources.some((source) => sourceDomain(source) === getDomain(activeUrl))
+    : articles.some((article) => urlsMatch(article.originalUrl, activeUrl)));
+  const saveLabel = saving
+    ? saving === "sources" ? "Saving source…" : "Saving page…"
+    : currentPageSaved
+      ? savingSource ? "Source saved" : "Page saved"
+      : savingSource ? "Save source" : "Save page";
 
   useEffect(() => {
     const header = headerRef.current;
@@ -94,12 +112,6 @@ export function App() {
     updateHeight();
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    if (!message) return;
-    const timeout = window.setTimeout(() => setMessage(""), 6000);
-    return () => window.clearTimeout(timeout);
-  }, [message]);
 
   const applySnapshot = useCallback((
     [nextArticles, nextAnnotations, nextSources, ignored, nextSessions, nextHistory]:
@@ -124,7 +136,6 @@ export function App() {
       if (!("bookmarks" in response)) throw new Error("Favorite details could not be loaded.");
       setBookmarkMetadata(response.bookmarks);
       applySnapshot(await readLibrarySnapshot());
-      setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Ready could not load your library.");
     } finally {
@@ -216,6 +227,7 @@ export function App() {
     () => [...new Set(articles.map((article) => article.domain))].sort(),
     [articles]
   );
+  const domainFamilies = useMemo(() => websiteFamilies(domains), [domains]);
   const tags = useMemo(
     () =>
       normalizeTags(articles.flatMap((article) => article.tags ?? [])).sort((left, right) =>
@@ -226,6 +238,10 @@ export function App() {
   const allTags = useMemo(() => normalizeTags([
     ...tags, ...sources.flatMap((source) => source.tags ?? [])
   ]).sort((left, right) => left.localeCompare(right)), [tags, sources]);
+
+  useEffect(() => {
+    setDomainFilter((current) => reconcileWebsiteFilter(domains, current));
+  }, [domains]);
 
   useEffect(() => {
     setTagFilter((current) =>
@@ -255,7 +271,7 @@ export function App() {
       .filter((article) => view !== "discover" || workspace !== "library" || recommendations.some((item) => item.articleId === article.id))
       .filter((article) => statusFilter === "all" || article.status === statusFilter)
       .filter((article) => !orphanedOnly || article.bookmarkState === "orphaned")
-      .filter((article) => domainFilter === "all" || article.domain === domainFilter)
+      .filter((article) => matchesWebsite(article.domain, domainFilter))
       .filter(
         (article) => tagFilter === "" || (article.tags ?? []).some((tag) => tag.toLocaleLowerCase() === tagFilter.toLocaleLowerCase())
       )
@@ -326,11 +342,29 @@ export function App() {
   }, [filtered]);
 
   async function saveCurrentPage() {
+    if (savePendingRef.current) return;
+    savePendingRef.current = true;
+    const target = savingSource ? "sources" : "library";
+    setSaving(target);
     clearFeedback();
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.url || !/^https?:/.test(tab.url)) {
+      if (!tab?.url || !isScriptableUrl(tab.url)) {
         throw new Error("Ready can save standard http and https pages.");
+      }
+      if (target === "sources") {
+        const domain = getDomain(tab.url);
+        const saved = await db.sources.toArray();
+        if (saved.some((source) => sourceDomain(source) === domain)) {
+          setMessage("This source is already saved.");
+        } else {
+          await db.sources.add(sourceFromInput({
+            name: domain, url: new URL(tab.url).origin, subscribed: false
+          }));
+          setMessage("Source added.");
+        }
+        await loadData();
+        return;
       }
       await requestSiteAccess(tab.url);
       const response = await sendReadyMessage({ type: "SAVE_ACTIVE_PAGE" });
@@ -345,7 +379,10 @@ export function App() {
       );
       await loadData();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The page could not be saved.");
+      setError(reason instanceof Error ? reason.message : `The ${target === "sources" ? "source" : "page"} could not be saved.`);
+    } finally {
+      savePendingRef.current = false;
+      setSaving(undefined);
     }
   }
 
@@ -552,8 +589,22 @@ export function App() {
             <span>Your reading, kept local</span>
           </div>
         </div>
-        <button className="button primary compact" onClick={() => void saveCurrentPage()}>
-          <span aria-hidden="true">＋</span> Save page
+        <button className="button primary compact save-current-page"
+          disabled={loading || Boolean(saving) || currentPageSaved || !isScriptableUrl(activeUrl)}
+          data-saved={currentPageSaved}
+          aria-busy={Boolean(saving)}
+          onClick={() => void saveCurrentPage()}>
+          <svg className="save-icon" data-state={saving ? "saving" : currentPageSaved ? "saved" : "idle"}
+            aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            {saving ? (
+              <><path d="M7 3h10M7 21h10M8 3v4l8 10v4M16 3v4L8 17v4" /></>
+            ) : currentPageSaved ? (
+              <><path d="M19 11v10l-7-4-7 4V5a2 2 0 0 1 2-2h6" /><path d="m14 6 3 3 5-6" /></>
+            ) : (
+              <><path d="M19 11v10l-7-4-7 4V5a2 2 0 0 1 2-2h6" /><path d="M18 2v6m-3-3h6" /></>
+            )}
+          </svg> {saveLabel}
         </button>
       </header>
 
@@ -588,29 +639,19 @@ export function App() {
           ))}
         </nav>
       )}
-      </div>
-
-      {error && (
-        <div className="feedback error" role="alert">
-          <span>{error}</span>
-          <button type="button" className="feedback-dismiss" aria-label="Dismiss error" onClick={() => setError("")}>×</button>
-        </div>
-      )}
-      {message && (
-        <div className="feedback success" role="status">
-          <span>{message}</span>
-          <button type="button" className="feedback-dismiss" aria-label="Dismiss notification" onClick={() => setMessage("")}>×</button>
-        </div>
-      )}
-      {readArticle && articles.some((article) => article.id === readArticle.id) && (
-        <div className="feedback read-complete" role="status">
-          <span>Finished reading "{readArticle.title}"? You can remove it from Ready and keep its reading history and Edge Favorite.</span>
-          <div className="button-row">
-            <button type="button" className="button secondary compact" onClick={() => void removeArticle(readArticle)}>Remove from list</button>
-            <button type="button" className="button ghost compact" onClick={() => setReadArticle(undefined)}>Keep in list</button>
+      <div className="header-feedback">
+        <FeedbackMessages />
+        {readArticle && articles.some((article) => article.id === readArticle.id) && (
+          <div className="feedback read-complete" role="status">
+            <span>Finished reading "{readArticle.title}"? You can remove it from Ready and keep its reading history and Edge Favorite.</span>
+            <div className="button-row">
+              <button type="button" className="button secondary compact" onClick={() => void removeArticle(readArticle)}>Remove from list</button>
+              <button type="button" className="button ghost compact" onClick={() => setReadArticle(undefined)}>Keep in list</button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+      </div>
 
       {(view === "library" || (view === "discover" && workspace === "library")) && (
         <main className="library" aria-label={view === "discover" ? "Discover articles" : "Articles"}>
@@ -666,7 +707,12 @@ export function App() {
                 aria-label="Website"
               >
                 <option value="all">All websites</option>
-                {domains.map((domain) => <option key={domain}>{domain}</option>)}
+                {domainFamilies.map((family) => family.members.length > 1 || family.value === domainFilter ? (
+                  <optgroup key={family.domain} label={family.domain}>
+                    <option value={family.value}>All {family.domain} sites</option>
+                    {family.members.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
+                  </optgroup>
+                ) : <option key={family.domain} value={family.members[0]}>{family.members[0]}</option>)}
               </select>
             </label>
             {tags.length > 0 && (

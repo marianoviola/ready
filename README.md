@@ -17,6 +17,8 @@ uninstalling. This repository does not imply store approval or an available list
 
 - Link individual Favorites or entire Favorite folders without creating copies.
 - Save the active page, linking an existing matching Favorite when available.
+- The header save action follows your workspace: **Save page** in Library or **Save source** in Sources. It shows saving progress and a persistent saved state for the current article or website. Saving a source adds its website without creating a Favorite or requesting reading access.
+- Success and error notifications stay in the sticky header while you scroll articles, sources, or settings. Errors inside an open dialog stay with that dialog.
 - Keep reading records, progress, highlights, notes, and history after a Favorite is deleted.
 - Restore orphaned records to an existing or newly created Favorite.
 - See live Favorite links and folder paths; move any linked Favorite directly from Ready without changing its tags, reading progress, or default save destination.
@@ -25,12 +27,16 @@ uninstalling. This repository does not imply store approval or an available list
 - Create persistent CSS Custom Highlight API highlights and optional private notes.
 - Search local article metadata and notes.
 - Filter by reading status, website, tag, and orphan state; sort by recent activity or saved date; group by status, website, date, or tag with collapsible sections in List or horizontally scrolling Kanban layout.
+- Website and tag filters reset automatically when their selected value no longer exists in the library; other filter selections are preserved.
+- The website filter nests related hosts under their shared registrable domain. Select a whole website family or an individual host; multi-part public suffixes and private hosting domains are recognized locally, without network lookups.
+- The save button uses bookmark, hourglass, and confirmation icons for idle, saving, and saved states, with persistent text labels and no animation. Saved-state colors remain consistent on hover in light and dark mode.
 - Inherit tags from Favorite folders when linking, then edit them in an integrated editor with reusable existing tags and new tag creation.
 - Navigate between **Library** and **Sources**, each with its own **Tags** and **Discover** views, with general settings kept separate.
 - Use compact, consistent article and source cards: **Open/Resume** stays visible, with secondary actions in the **...** menu. Menus support arrow keys, Home/End, Escape, and outside-click dismissal.
 - Browse scoped tag directories and open the corresponding filtered article or source list.
 - Select visible articles for bulk tag addition, reading-status changes, or removal. One Ready confirmation offers an optional, unchecked **Also delete linked Edge Favorites** checkbox.
 - Keep a separate directory of websites to browse manually, with private notes and subscription status.
+- Removing a source uses the same in-Ready confirmation as article removal. Source notes and tags are removed, while saved articles, reading history, and Edge Favorites are kept.
 - Tag sources during creation or editing, reusing tags from Library or creating new ones. Source and article tags share suggestions but remain independent; creating a source from an article suggests its tags without copying them automatically.
 - Search source names, domains, notes, and tags; filter by tag or subscription; group by tag or subscription in List or Kanban, with collapsible groups and separately saved group order. Sources with multiple tags appear in each tag group; untagged sources have their own group.
 - Sort sources by name, added date, updated date, or saved article count. The default remains subscribed first, then alphabetical. Updated date reflects source edits, not site visits.

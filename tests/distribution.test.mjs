@@ -39,7 +39,7 @@ test("release ZIP is complete, licensed, versioned and repeatable", async () => 
     assert.ok(entries.includes(match[1].replace(/^\//, "")), `Missing asset ${match[1]}`);
   }
   const notices = readEntry("THIRD-PARTY-NOTICES.txt");
-  for (const dependency of ["dexie", "react", "react-dom", "scheduler"]) {
+  for (const dependency of ["dexie", "react", "react-dom", "scheduler", "tldts", "tldts-core"]) {
     assert.ok(notices.includes(`--- ${dependency} `), `Missing license for ${dependency}`);
   }
   assert.ok(notices.includes("Apache License"));

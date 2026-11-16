@@ -17,7 +17,18 @@ button { color: inherit; }
   position: sticky;
   z-index: 20;
   top: 0;
+  background: #f7f7f8;
 }
+.save-current-page { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.save-icon { flex: none; width: 16px; height: 16px; }
+.button.save-current-page[data-saved="true"]:disabled,
+.button.save-current-page[data-saved="true"]:disabled:hover { opacity: 1; cursor: default; color: #246842; background: #e8f6ed; }
+@media (prefers-color-scheme: dark) {
+  .button.save-current-page[data-saved="true"]:disabled,
+  .button.save-current-page[data-saved="true"]:disabled:hover { color: #a4dfbb; background: #263d32; }
+}
+.header-feedback { max-height: 35vh; overflow-y: auto; }
+.header-feedback:not(:empty) { padding-bottom: 9px; }
 .topbar {
   display: flex;
   align-items: center;
@@ -28,6 +39,7 @@ button { color: inherit; }
   backdrop-filter: blur(14px);
 }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand > div { min-width: 0; }
 .brand-mark {
   display: block;
   width: 34px;
@@ -49,7 +61,7 @@ button { color: inherit; }
   box-shadow: 0 5px 14px rgba(68, 64, 162, .25);
 }
 .brand h1 { margin: 0; font-size: 17px; line-height: 1.1; }
-.brand span { display: block; margin-top: 2px; color: #707078; font-size: 11px; white-space: nowrap; }
+.brand span { display: block; margin-top: 2px; color: #707078; font-size: 11px; }
 
 .tabs {
   display: flex;
@@ -128,7 +140,7 @@ button { color: inherit; }
 .select-field::after {
   position: absolute;
   top: 50%;
-  right: 9px;
+  right: 13px;
   width: 6px;
   height: 6px;
   border-right: 1.5px solid #5a5a61;
@@ -152,7 +164,7 @@ select {
   height: 32px;
   min-width: 0;
   max-width: none;
-  padding: 6px 25px 6px 9px;
+  padding: 6px 33px 6px 9px;
   overflow: hidden;
   appearance: none;
   line-height: 1.2;
@@ -201,11 +213,11 @@ select {
   width: auto;
 }
 .compact-select-field::after {
-  right: 8px;
+  right: 12px;
 }
 .compact-select-field select {
   height: 30px;
-  padding: 5px 23px 5px 7px;
+  padding: 5px 32px 5px 7px;
   border-color: transparent;
   background: transparent;
   font-weight: 600;
@@ -221,7 +233,7 @@ select {
 }
 .button:disabled { cursor: not-allowed; opacity: .5; }
 .button.primary { color: white; background: #5b5fc7; }
-.button.primary:hover { background: #4c50ad; }
+.button.primary:hover:not(:disabled) { background: #4c50ad; }
 .button.secondary { border-color: #d7d7dc; background: white; }
 .button.ghost { background: transparent; color: #666; }
 .button.compact { padding: 7px 9px; white-space: nowrap; }
@@ -322,7 +334,7 @@ select {
 .progress-track span { display: block; height: 100%; border-radius: inherit; background: #6b67cf; }
 .card-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .card-actions > .button { min-height: 32px; }
-.card-actions select { min-width: 0; max-width: 108px; height: 32px; padding: 5px 4px; font-size: 11px; }
+.card-actions select { min-width: 0; max-width: 108px; height: 32px; padding: 5px 24px 5px 7px; font-size: 11px; }
 .card-menu-trigger { display: grid; place-items: center; flex: none; width: 32px; margin-left: auto; padding: 6px; }
 .card-menu-trigger svg { width: 18px; height: 18px; fill: currentColor; }
 .card-action-menu { position: fixed; inset: auto; width: min(220px, calc(100vw - 24px)); max-height: min(320px, calc(100vh - 24px)); margin: 0; padding: 5px; overflow-y: auto; border: 1px solid #d7d7dc; border-radius: 10px; background: white; color: inherit; box-shadow: 0 8px 28px rgba(29, 29, 40, .18); }
@@ -417,6 +429,7 @@ select {
 .feedback-dismiss { display: grid; place-items: center; flex: none; width: 24px; height: 24px; margin: -4px; padding: 0; border: 0; border-radius: 4px; color: inherit; background: transparent; cursor: pointer; font-size: 18px; }
 .feedback-dismiss:hover { background: rgba(0, 0, 0, .08); }
 .error { display: grid; gap: 4px; color: #992f3b; background: #fcebed; }
+.feedback.error { display: flex; }
 .success { color: #246842; background: #e8f6ed; }
 
 .modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; align-items: end; background: rgba(20, 20, 28, .42); }
@@ -425,9 +438,14 @@ dialog.modal { max-width: 100%; max-height: 90vh; color: inherit; border: 0; }
 dialog.modal:not([open]) { display: none; }
 dialog.modal::backdrop { background: rgba(20, 20, 28, .42); }
 .bookmark-picker { margin: auto 0 0; }
-.remove-articles-dialog { width: calc(100% - 24px); height: auto; min-height: 0; margin: auto; border-radius: 14px; overflow-y: auto; font-size: 12px; line-height: 1.5; }
-.remove-articles-dialog .modal-header { gap: 8px; }
-.remove-articles-dialog h2 { font-size: 17px; }
+dialog.removal-dialog { width: min(440px, calc(100% - 32px)); max-width: none; height: fit-content; min-height: 0; max-height: calc(100dvh - 32px); gap: 16px; margin: auto; padding: 20px; border-radius: 14px; overflow-y: auto; font-size: 12px; line-height: 1.5; }
+.removal-dialog > p { margin: 0; }
+.removal-dialog > * { flex-shrink: 0; }
+.removal-dialog .remove-bookmarks-option { padding: 12px; border: 1px solid #d8d8dd; border-radius: 8px; }
+.removal-dialog .modal-actions { flex-wrap: wrap; padding-top: 16px; border-top: 1px solid #d8d8dd; }
+.removal-dialog .modal-actions .button { min-height: 36px; }
+.removal-dialog .modal-header { gap: 8px; }
+.removal-dialog h2 { font-size: 17px; }
 .remove-bookmarks-option, .retention-toggle { display: flex; align-items: flex-start; gap: 8px; line-height: 1.5; }
 .remove-bookmarks-option input, .retention-toggle input { flex: none; margin-top: 3px; accent-color: #5b5fc7; }
 .button.danger { background: #a43545; color: white; }
@@ -448,6 +466,8 @@ dialog.modal::backdrop { background: rgba(20, 20, 28, .42); }
 .retention-limit { display: grid; gap: 6px; margin: 12px 0; font-size: 12px; }
 .retention-limit input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid #d8d8dd; border-radius: 8px; color: inherit; background: white; }
 @media (prefers-color-scheme: dark) {
+  .app-header { background: #202024; }
+  .removal-dialog .remove-bookmarks-option, .removal-dialog .modal-actions { border-color: #4a4a55; }
   .bookmark-state { color: #9bd4b2; }
   .bookmark-state.orphaned { color: #f2a6b1; }
   .read-complete { background: #302f47; }
