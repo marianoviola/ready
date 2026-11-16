@@ -23,11 +23,15 @@ function formatDuration(seconds: number): string {
 
 function ActivityList({ items }: { items: ReadingActivity[] }) {
   if (!items.length) return <p className="muted">No recorded activity yet.</p>;
+  const maximum = Math.max(1, ...items.map((item) => item.activeSeconds));
   return (
-    <ul className="stats-list">
-      {items.map((item) => (
+    <ul className="stats-list stats-ranking">
+      {items.map((item, index) => (
         <li key={item.key}>
-          <span>{item.label}</span>{" "}<strong>{formatDuration(item.activeSeconds)}</strong>
+          <div className="stats-ranking-label"><span>{item.label}</span>{" "}<strong>{formatDuration(item.activeSeconds)}</strong></div>
+          <div className="stats-bar-track" aria-hidden="true">
+            <span className={`stats-tone-${index % 3}`} style={{ width: `${item.activeSeconds / maximum * 100}%` }} />
+          </div>
         </li>
       ))}
     </ul>
@@ -47,6 +51,16 @@ export function ReadingStats({ articles, sessions, history = [] }: ReadingStatsP
   const stats = calculateReadingStats(articles, sessions, Date.now(), history);
   const dailyMax = Math.max(1, ...stats.dailyActivity.map((day) => day.activeSeconds));
   const dateFormat = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const weekdayFormat = new Intl.DateTimeFormat("en-US", { weekday: "short" });
+  const statuses = [
+    { label: "Read", count: stats.currentCounts.read },
+    { label: "In progress", count: stats.currentCounts.in_progress },
+    { label: "Unread", count: stats.currentCounts.unread }
+  ];
+  const currentTotal = statuses.reduce((total, status) => total + status.count, 0);
+  const readPercent = currentTotal ? stats.currentCounts.read / currentTotal * 100 : 0;
+  const progressPercent = currentTotal ? stats.currentCounts.in_progress / currentTotal * 100 : 0;
+  const weekSeconds = stats.dailyActivity.reduce((total, day) => total + day.activeSeconds, 0);
 
   return (
     <section className="panel-page stats-panel" aria-labelledby="reading-stats-heading">
@@ -62,31 +76,51 @@ export function ReadingStats({ articles, sessions, history = [] }: ReadingStatsP
 
       <section className="settings-card" aria-labelledby="stats-status-heading">
         <h3 id="stats-status-heading">Current article status</h3>
-        <ul className="stats-list">
-          <li>Read: {stats.currentCounts.read}</li>
-          <li>In progress: {stats.currentCounts.in_progress}</li>
-          <li>Unread: {stats.currentCounts.unread}</li>
-        </ul>
+        <div className="stats-status">
+          <div className="stats-ring" aria-hidden="true" style={{
+            background: currentTotal
+              ? `conic-gradient(var(--stats-primary) 0% ${readPercent}%, var(--stats-secondary) ${readPercent}% ${readPercent + progressPercent}%, var(--stats-tertiary) ${readPercent + progressPercent}% 100%)`
+              : "var(--stats-track)"
+          }}>
+            <div><strong>{currentTotal}</strong><span>in library</span></div>
+          </div>
+          <ul className="stats-list stats-legend">
+            {statuses.map((status, index) => (
+              <li key={status.label}>
+                <span className={`stats-swatch stats-tone-${index}`} aria-hidden="true" />
+                <span>{status.label}: {status.count}</span>
+                <span className="muted">{currentTotal ? Math.round(status.count / currentTotal * 100) : 0}%</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {!currentTotal && <p className="muted">Save an article to start building your library.</p>}
         <p>Recorded reads: {stats.recordedReads} ({stats.archivedReadCount} archived)</p>
         <p className="muted">Recorded reads reflect current or archived status, not completion dates.</p>
       </section>
 
       <section className="settings-card" aria-labelledby="stats-daily-heading">
         <h3 id="stats-daily-heading">Activity over the past 7 days</h3>
-        <p className="muted">Sessions are assigned to their local end date; activity within a session is not split across days.</p>
+        <p className="stats-week-total"><strong>{formatDuration(weekSeconds)}</strong> <span className="muted">this week</span></p>
         <ul className="stats-list stats-daily">
           {stats.dailyActivity.map((day) => {
             const label = dateFormat.format(day.date);
             return (
               <li key={day.date.getTime()}>
-                <span>{label}: {formatDuration(day.activeSeconds)}</span>{" "}
-                <meter aria-label={`Recorded active time on ${label}`} min={0} max={dailyMax} value={day.activeSeconds}>
+                <span className="stats-day-value" aria-hidden="true">{day.activeSeconds ? formatDuration(day.activeSeconds) : "\u2014"}</span>
+                <div className="stats-day-track" aria-hidden="true">
+                  <span style={{ height: `${day.activeSeconds / dailyMax * 100}%` }} />
+                </div>
+                <span className="stats-day-label" aria-hidden="true">{weekdayFormat.format(day.date)}</span>
+                <meter className="sr-only" aria-label={`Recorded active time on ${label}`} min={0} max={dailyMax} value={day.activeSeconds} aria-valuetext={formatDuration(day.activeSeconds)}>
                   {formatDuration(day.activeSeconds)}
                 </meter>
               </li>
             );
           })}
         </ul>
+        {!weekSeconds && <p className="muted">No recorded activity this week yet.</p>}
+        <p className="muted">Sessions are assigned to their local end date; activity within a session is not split across days.</p>
       </section>
 
       <section className="settings-card" aria-labelledby="stats-domains-heading">

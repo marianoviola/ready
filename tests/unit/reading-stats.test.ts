@@ -114,6 +114,42 @@ describe("reading statistics", () => {
     expect(html).toContain("aria-label=\"Recorded active time on ");
     expect(html).toContain("tag totals can overlap");
     expect(html).toContain("Archived history stays on this device.");
+    expect(html).toContain('background:var(--stats-track)');
+    expect(html).toContain("No recorded activity this week yet.");
+    expect(html).not.toMatch(/NaN|Infinity/);
+  });
+
+  it("scales status, daily and ranked charts from real counts and durations", () => {
+    const currentTime = Date.now();
+    const html = renderToStaticMarkup(createElement(ReadingStats, {
+      articles: [
+        article("a", { status: "read", domain: "first.example", tags: ["Science"] }),
+        article("b", { status: "in_progress", domain: "second.example", tags: ["News"] }),
+        article("c"), article("d")
+      ],
+      sessions: [
+        session("1", "a", currentTime, 120),
+        session("2", "b", currentTime, 60)
+      ]
+    }));
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    expect(doc.querySelector(".stats-ring")?.getAttribute("style")).toContain(
+      "conic-gradient(var(--stats-primary) 0% 25%, var(--stats-secondary) 25% 50%, var(--stats-tertiary) 50% 100%)"
+    );
+    expect(doc.querySelector(".stats-ring")?.getAttribute("aria-hidden")).toBe("true");
+    expect(doc.querySelectorAll(".stats-legend li")).toHaveLength(3);
+    expect(doc.querySelector(".stats-week-total")?.textContent).toBe("3m this week");
+    const meters = [...doc.querySelectorAll("meter")];
+    expect(meters).toHaveLength(7);
+    expect(meters[6].getAttribute("aria-valuetext")).toBe("3m");
+    expect(meters[6].getAttribute("value")).toBe("180");
+    expect(doc.querySelectorAll('.stats-day-track > span[style="height:100%"]')).toHaveLength(1);
+    expect(doc.querySelectorAll('.stats-day-track > span[style="height:0%"]')).toHaveLength(6);
+    for (const ranking of doc.querySelectorAll(".stats-ranking")) {
+      const bars = ranking.querySelectorAll(".stats-bar-track > span");
+      expect(bars[0].getAttribute("style")).toBe("width:100%");
+      expect(bars[1].getAttribute("style")).toBe("width:50%");
+    }
   });
 
   it("renders recorded activity and current status from supplied props", () => {

@@ -42,7 +42,7 @@ uninstalling. This repository does not imply store approval or an available list
 - Sort sources by name, added date, updated date, or saved article count. The default remains subscribed first, then alphabetical. Updated date reflects source edits, not site visits.
 - Show deterministic, on-device forgotten, unfinished, and related recommendations.
 - Discover potential sources from websites already in your library, using the same source list controls. Suggestions make no external requests and are saved only after explicit confirmation.
-- View local active reading time, current status, daily activity, domain/tag breakdowns, and archived reading history in **Library → Statistics**.
+- View local active reading time, a library-status ring, a seven-day activity chart, domain/tag bars, and archived reading history in **Library → Statistics**. Charts use Ready's violet palette, adapt to dark mode, and keep labeled values available to assistive technology.
 - Optionally clean up the oldest read articles beyond a configurable limit (100 by default). Automation starts disabled, never removes unread/in-progress articles, and never deletes Edge Favorites.
 - Export selected or all reading data to a versioned, browser-independent JSON file.
 - Preview, reconcile, and non-destructively merge JSON imports.

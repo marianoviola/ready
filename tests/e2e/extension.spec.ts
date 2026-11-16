@@ -676,6 +676,18 @@ test("moves Favorites, discovers local sources, and preserves statistics through
     await page.getByRole("button", { name: "Statistics", exact: true }).click();
     await expect(page.getByText("Recorded active time:", { exact: false })).toContainText("30s");
     await expect(page.getByText("Recorded reads: 2 (1 archived)", { exact: true })).toBeVisible();
+    await expect(page.locator(".stats-ring")).toBeVisible();
+    await expect(page.getByRole("meter")).toHaveCount(7);
+    await expect(page.locator(".stats-day-track")).toHaveCount(7);
+    await expect(page.locator(".stats-ranking").first().locator(".stats-bar-track")).not.toHaveCount(0);
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      const chartFits = await page.locator(".stats-daily").evaluate((chart) =>
+        [...chart.children].every((column) => column.getBoundingClientRect().right <= chart.getBoundingClientRect().right + 1));
+      expect(chartFits).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`statistics-${colorScheme}.png`), fullPage: true });
+    }
     await page.getByText("Archived articles (1)", { exact: true }).click();
     await expect(page.getByText(`Historical Favorite reference: ${favorites.second.id}`, { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.clientWidth)).toBe(305);
