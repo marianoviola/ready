@@ -4,7 +4,14 @@
 
 <h1 align="center">Ready</h1>
 
-Ready is a local-first Microsoft Edge extension that turns existing Favorites into a private reading library. Edge remains the source of truth for bookmark URLs, titles, folders, creation dates, and native synchronization. Ready stores only reading-specific data in IndexedDB.
+**Your bookmarks. Your reading library.**
+
+Ready turns Microsoft Edge Favorites into a reading library with progress tracking,
+highlights, notes, and reading insights. Edge remains the source of truth for
+bookmark URLs, titles, folders, creation dates, and native synchronization. Ready
+stores only reading-specific data in IndexedDB.
+
+Your reading data stays in your browser. No Ready account, no tracking.
 
 **Public release candidate — 0.1.0.** Ready is being prepared for Microsoft Edge
 Add-ons. Keep a JSON backup before updating, switching installations, or
@@ -174,7 +181,8 @@ not control the GitHub repository's visibility.
 Suggested listing:
 
 - **Name:** Ready
-- **Summary:** Turn Edge Favorites into a private, local-first reading library.
+- **Tagline:** Your bookmarks. Your reading library.
+- **Summary:** Turn Edge Favorites into a reading library with progress tracking, highlights, notes, and reading insights.
 - **Description:** Organize saved articles with tags, filters, and List or Kanban
   groups. Track reading progress, resume where you stopped, and keep highlights
   and notes locally. Link existing Favorites without duplicating them and export

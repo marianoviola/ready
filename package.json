@@ -2,7 +2,7 @@
   "name": "ready-edge-extension",
   "private": true,
   "version": "0.1.0",
-  "description": "A local-first reading library for Microsoft Edge Favorites.",
+  "description": "Turn Edge Favorites into a reading library with progress tracking, highlights, notes, and reading insights.",
   "license": "MIT",
   "author": "Mariano Viola",
   "homepage": "https://marianoviola.com/",

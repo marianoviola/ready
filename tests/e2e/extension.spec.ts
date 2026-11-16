@@ -764,6 +764,8 @@ test("saves the active website as a source and keeps contextual saved state in s
     await save.evaluate((button: HTMLButtonElement) => button.click());
     await expect(save).toContainText("Source saved");
     await expect(save).toBeDisabled();
+    await expect(page.locator(".brand span")).toHaveText("Your bookmarks. Your reading library.");
+    expect(await page.locator(".brand span").evaluate((tagline) => tagline.scrollWidth <= tagline.clientWidth)).toBe(true);
     const brandBounds = await page.locator(".brand span").boundingBox();
     const saveBounds = await save.boundingBox();
     expect(brandBounds!.x + brandBounds!.width).toBeLessThanOrEqual(saveBounds!.x - 12);

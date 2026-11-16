@@ -586,7 +586,7 @@ function ReadyApp() {
           <img className="brand-mark" src="/icons/ready-48.png" alt="" />
           <div>
             <h1>Ready</h1>
-            <span>Your reading, kept local</span>
+            <span>Your bookmarks. Your reading library.</span>
           </div>
         </div>
         <button className="button primary compact save-current-page"
@@ -960,7 +960,7 @@ function ReadyApp() {
           <div className="settings-preferences">
             <section className="settings-card" aria-label="About Ready">
               <h3>Ready {chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}</h3>
-              <p className="muted">A local-first reading library. No account, analytics, or Ready server.</p>
+              <p className="muted">Your reading data stays in your browser. No Ready account, no tracking.</p>
               <p className="muted">Reading data stays in this browser profile. Export a backup before updating, switching installations, or uninstalling.</p>
               <div className="button-row">
                 <a href="https://marianoviola.com/privacy/#ready" target="_blank" rel="noopener noreferrer">Privacy</a>

@@ -24,15 +24,19 @@ Do not announce store availability or invent an Add-ons URL before approval.
 
 Ready
 
+### Tagline
+
+Your bookmarks. Your reading library.
+
 ### Short description
 
-Turn Edge Favorites into a private, local-first reading library.
+Turn Edge Favorites into a reading library with progress tracking, highlights, notes, and reading insights.
 
 This must match `description` in the packaged manifest.
 
 ### Description
 
-Your next great read is already in your Favorites.
+Your bookmarks. Your reading library.
 
 Ready turns Microsoft Edge Favorites into a personal reading library, without
 moving your articles into another service. Link existing Favorites or save the
@@ -68,6 +72,8 @@ keeps only a chosen number of read articles and never automatically deletes Edge
 Favorites. Cleanup is off by default.
 
 LOCAL FIRST
+
+Your reading data stays in your browser. No Ready account, no tracking.
 
 Ready has no account, backend, advertising, analytics, or telemetry. Reading data
 is stored in your browser profile. Discover suggestions use your existing local
