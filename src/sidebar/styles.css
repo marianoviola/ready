@@ -560,6 +560,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .brand span, .muted, .article-topline { color: #aaaab2; }
   .search-box, select, .check-filter, .button.secondary, .article-card,
   .recommendation-card, .settings-card, .source-card, .tree, .card-action-menu { background: #2b2b30; border-color: #44444a; }
+  select, .check-filter { color: #f3f3f5; }
+  select option { color: #f3f3f5; background: #2b2b30; }
+  .select-field::after { border-color: #bdbdc6; }
+  .organize-row, .link-filter, .selection-count { color: #aaaab2; }
+  .button.ghost { color: #bdbdc6; }
+  .feedback-dismiss:hover { background: rgba(255, 255, 255, .1); }
   .card-action-menu button:hover:not(:disabled), .card-action-menu button:focus-visible { background: #3b395b; }
   .card-action-menu .danger-text { color: #ff9aa5; border-color: #44444a; }
   .search-box input { color: #f3f3f5; }
@@ -583,8 +589,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .modal { background: #252529; }
   .source-fields label, .source-note { color: #d3d3d8; }
   .source-fields input[type="text"], .source-fields textarea { border-color: #44444a; background: #2b2b30; }
+  .source-identity span, .source-meta, .optional { color: #aaaab2; }
   .subscription-badge { color: #9cdbb8; background: #284638; }
   .source-icon { color: #bdbdc6; background: #39393f; }
+  .import-preview { color: #d8f3e2; background: #294237; }
+  .error { color: #ffb8c0; background: #482b31; }
+  .success { color: #a4dfbb; background: #263d32; }
+  .empty-state { color: #aaaab2; }
+  .empty-state h2 { color: #f3f3f5; }
+  .modal, .tag-editor { background: #252529; }
+  .removal-dialog .remove-bookmarks-option { border-color: #4a4a55; }
+  .removal-dialog .modal-actions { border-color: #4a4a55; }
+  .tree-row.linked { color: #aaaab2; }
+  .linked-badge { color: #c6c9d6; background: #393b45; }
 }
 
 @media (prefers-reduced-motion: reduce) {
