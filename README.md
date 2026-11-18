@@ -13,9 +13,9 @@ stores only reading-specific data in IndexedDB.
 
 Your reading data stays in your browser. No Ready account, no tracking.
 
-**Public release candidate — 0.1.0.** Ready is being prepared for Microsoft Edge
-Add-ons. Keep a JSON backup before updating, switching installations, or
-uninstalling. This repository does not imply store approval or an available listing.
+**Microsoft Edge Add-ons release — 0.1.1.** Keep a JSON backup before updating,
+switching installations, or uninstalling. This repository does not imply store
+approval or an available listing.
 
 [Privacy policy](https://marianoviola.com/privacy/#ready) ·
 [Contact & support](https://marianoviola.com/contact/)
@@ -150,13 +150,13 @@ npm run test:distribution
 npm run test:e2e
 ```
 
-The package is `release/ready-0.1.0.zip`, accompanied by
-`ready-0.1.0.zip.sha256`. It contains the manifest at the archive root, the built
+The package is `release/ready-0.1.1.zip`, accompanied by
+`ready-0.1.1.zip.sha256`. It contains the manifest at the archive root, the built
 extension, MIT license, and third-party license notices. Source maps and development
 files are excluded. Entries are sorted and timestamps normalized for repeatable
 packaging of the same build and installed dependencies.
-On macOS, verify a downloaded pair with `shasum -a 256 -c ready-0.1.0.zip.sha256`;
-on Linux use `sha256sum -c ready-0.1.0.zip.sha256`.
+On macOS, verify a downloaded pair with `shasum -a 256 -c ready-0.1.1.zip.sha256`;
+on Linux use `sha256sum -c ready-0.1.1.zip.sha256`.
 
 CI checks types, unit tests, production build, package contents, and headed Chromium
 extension tests under Xvfb. It uploads a release artifact but does not publish it.
@@ -167,7 +167,7 @@ To prepare a GitHub release after review:
 1. Keep `package.json`, its lockfile, and `public/manifest.json` versions aligned;
    keep `version_name` aligned with the release version.
 2. Commit and push the reviewed changes and an explicit matching tag such as
-   `v0.1.0`.
+   `v0.1.1`.
 3. Run **Release candidate** in GitHub Actions with that existing tag. It validates the
    tagged source and creates a **draft release** with ZIP and checksum.
 4. Inspect the draft, artifacts, and release notes before publishing manually.

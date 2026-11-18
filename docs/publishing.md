@@ -3,7 +3,7 @@
 ## Release identity
 
 - Product: **Ready**
-- Version: **0.1.0**
+- Version: **0.1.1**
 - Visibility: **Public** (searchable, not Hidden)
 - Listing language: **English (United States)** (`en-US`)
 - Suggested category: **Productivity**
@@ -94,11 +94,10 @@ by the reading layer. Ready is a reading companion, not an offline article archi
 
 reading list; favorites; bookmarks; read later; highlights; notes; tags
 
-### What's new in 0.1.0
+### What's new in 0.1.1
 
-Initial release: a local-first reading library connected to Edge Favorites, with
-tags, List and Kanban views, highlights and notes, Sources, reading statistics,
-optional read-list cleanup, and JSON backup and restore.
+Improved dark-mode contrast across Settings, filters, sorting controls, dialogs,
+feedback messages, Sources metadata, and JSON import previews.
 
 ## Permissions and privacy declarations
 
@@ -210,7 +209,7 @@ actual install-time/per-site permission prompt; test those manually with the ZIP
 - [x] Run `npx playwright test` for the default Chromium suite.
 - [x] Run `npm run test:edge` on a machine with Microsoft Edge installed.
 - [x] Run `npm run store:assets` and visually inspect every upload image.
-- [ ] Extract `release/ready-0.1.0.zip` into a new permanent directory and load
+- [ ] Extract `release/ready-0.1.1.zip` into a new permanent directory and load
       that directory in a disposable Edge profile. Verify the checksum first.
 - [ ] Manually verify the real toolbar/sidebar, site permission grant/denial,
       keyboard shortcut, save/link/move, reading layer, deletion confirmation,
