@@ -5,7 +5,7 @@
   "version": "0.1.1",
   "version_name": "0.1.1",
   "minimum_chrome_version": "120",
-  "homepage_url": "https://marianoviola.com/",
+  "homepage_url": "https://marianoviola.com/projects/ready/",
   "description": "Turn Edge Favorites into a reading library with progress tracking, highlights, notes, and reading insights.",
   "icons": {
     "16": "icons/ready-16.png",
