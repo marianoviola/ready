@@ -17,6 +17,7 @@ Your reading data stays in your browser. No Ready account, no tracking.
 switching installations, or uninstalling. This repository does not imply store
 approval or an available listing.
 
+[Project page](https://marianoviola.com/projects/ready/) ·
 [Privacy policy](https://marianoviola.com/privacy/#ready) ·
 [Contact & support](https://marianoviola.com/contact/)
 

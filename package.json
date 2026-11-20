@@ -5,7 +5,7 @@
   "description": "Turn Edge Favorites into a reading library with progress tracking, highlights, notes, and reading insights.",
   "license": "MIT",
   "author": "Mariano Viola",
-  "homepage": "https://marianoviola.com/",
+  "homepage": "https://marianoviola.com/projects/ready/",
   "repository": {
     "type": "git",
     "url": "https://github.com/marianoviola/ready.git"
